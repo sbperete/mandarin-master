@@ -134,15 +134,11 @@ function init() {
     }
 
     // Auth Enforcement
-    if (state.user) {
-        state.isLoggedIn = true;
-        checkAuthUI();
-        loadLevel(1);
-    } else {
-        // Show Modal & Lock
-        elements.loginModal.classList.remove('hidden');
-        // Prevent closing by background click (handled in CSS/Listener logic usually, but we removed the button)
-    }
+    // Firebase onAuthStateChanged (in firebase-config.js) will fire and dispatch
+    // 'auth-state-changed' event. That event handler in setupAuthListeners() will
+    // either load the app or show the login modal. Show modal by default until
+    // Firebase resolves the auth state.
+    elements.loginModal.classList.remove('hidden');
 }
 
 function setupEventListeners() {
@@ -192,24 +188,52 @@ function setupAuthListeners() {
         });
     }
 
-    if (elements.authBtns) {
-        elements.authBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                // Mock Login
-                const mockUser = { id: 'u_' + Date.now(), name: 'Learner', email: 'demo@example.com' };
-                localStorage.setItem('vocab_user', JSON.stringify(mockUser));
-                state.user = mockUser;
-                state.isLoggedIn = true;
+    // --- Real Firebase OAuth Listeners ---
+    const googleBtn = document.querySelector('.auth-btn.google');
+    const facebookBtn = document.querySelector('.auth-btn.facebook');
+    const appleBtn = document.querySelector('.auth-btn.apple');
+    const emailBtn = document.querySelector('.auth-btn.email');
 
-                elements.loginModal.classList.add('hidden');
-                checkAuthUI();
-                alert("✅ Successfully Signed In! Progress saved.");
-                loadLevel(1); // Load data now
-            });
+    if (googleBtn) {
+        googleBtn.addEventListener('click', () => {
+            handleOAuthSignIn(signInWithGoogle, 'Google');
         });
     }
 
-    // Legacy upgrade button handler removed/ignored as we use PayPal now
+    if (facebookBtn) {
+        facebookBtn.addEventListener('click', () => {
+            handleOAuthSignIn(signInWithFacebook, 'Facebook');
+        });
+    }
+
+    if (appleBtn) {
+        appleBtn.addEventListener('click', () => {
+            handleOAuthSignIn(signInWithApple, 'Apple');
+        });
+    }
+
+    if (emailBtn) {
+        emailBtn.addEventListener('click', () => {
+            showEmailAuthForm();
+        });
+    }
+
+    // Listen for Firebase auth state changes
+    window.addEventListener('auth-state-changed', (e) => {
+        const user = e.detail.user;
+        if (user) {
+            state.user = user;
+            state.isLoggedIn = true;
+            elements.loginModal.classList.add('hidden');
+            checkAuthUI();
+            loadLevel(1);
+        } else {
+            state.user = null;
+            state.isLoggedIn = false;
+            elements.loginModal.classList.remove('hidden');
+        }
+    });
+
     if (elements.upgradeBtn) {
         elements.upgradeBtn.addEventListener('click', () => {
             elements.upgradeModal.classList.remove('hidden');
@@ -218,7 +242,36 @@ function setupAuthListeners() {
     }
 }
 
-function checkAuthUI() { } // Placeholder
+function handleOAuthSignIn(signInFn, providerName) {
+    signInFn().catch(function (error) {
+        if (error.code === 'auth/popup-closed-by-user') return;
+        if (error.code === 'auth/cancelled-popup-request') return;
+        console.error(providerName + ' sign-in error:', error);
+        alert('Sign-in failed: ' + error.message);
+    });
+}
+
+function showEmailAuthForm() {
+    const email = prompt('Enter your email:');
+    if (!email) return;
+    const password = prompt('Enter your password (min 6 characters):');
+    if (!password) return;
+
+    // Try sign-in first, fall back to sign-up
+    signInWithEmail(email, password).catch(function (error) {
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+            if (confirm('No account found. Create a new account?')) {
+                signUpWithEmail(email, password).catch(function (signUpError) {
+                    alert('Sign-up failed: ' + signUpError.message);
+                });
+            }
+        } else {
+            alert('Sign-in failed: ' + error.message);
+        }
+    });
+}
+
+function checkAuthUI() { }
 
 // --- CORE LOGIC ---
 
