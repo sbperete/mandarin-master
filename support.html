@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Support - Mandarin Master</title>
+    <meta name="description" content="Get help with Mandarin Master - FAQ, troubleshooting, and customer support for your Chinese learning journey.">
+    <meta name="robots" content="index, follow">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --text-primary: #2d3748;
+            --text-secondary: #4a5568;
+            --bg-light: #f7fafc;
+            --border-color: #e2e8f0;
+            --accent-color: #667eea;
+            --success-color: #48bb78;
+            --warning-color: #ed8936;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: var(--bg-light);
+        }
+        
+        .header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 3rem 1.5rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.95;
+        }
+        
+        .quick-links {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .quick-link-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.7rem 1.5rem;
+            border-radius: 30px;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .quick-link-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+        
+        .container {
+            max-width: 1100px;
+            margin: -2rem auto 4rem;
+            padding: 0 1.5rem;
+        }
+        
+        .content-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 2rem;
+        }
+        
+        .sidebar {
+            position: sticky;
+            top: 2rem;
+            height: fit-content;
+        }
+        
+        .sidebar-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 1.5rem;
+        }
+        
+        .sidebar-card h3 {
+            color: var(--accent-color);
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+        
+        .sidebar-card ul {
+            list-style: none;
+        }
+        
+        .sidebar-card li {
+            margin-bottom: 0.7rem;
+        }
+        
+        .sidebar-card a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+            display: block;
+            padding: 0.3rem 0;
+        }
+        
+        .sidebar-card a:hover {
+            color: var(--accent-color);
+        }
+        
+        .main-content {
+            background: white;
+            border-radius: 16px;
+            padding: 3rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+        }
+        
+        .search-box {
+            margin-bottom: 2rem;
+            position: relative;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 3rem;
+            border: 2px solid var(--border-color);
+            border-radius: 30px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        
+        .search-box::before {
+            content: '🔍';
+            position: absolute;
+            left: 1.2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.2rem;
+        }
+        
+        .faq-category {
+            margin-bottom: 3rem;
+        }
+        
+        .faq-category h2 {
+            color: var(--accent-color);
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.7rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        .faq-item {
+            margin-bottom: 1.5rem;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            transition: box-shadow 0.3s;
+        }
+        
+        .faq-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        .faq-question {
+            background: var(--bg-light);
+            padding: 1.2rem 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+        
+        .faq-question:hover {
+            background: #edf2f7;
+        }
+        
+        .faq-question::after {
+            content: '▼';
+            font-size: 0.8rem;
+            transition: transform 0.3s;
+            color: var(--accent-color);
+        }
+        
+        .faq-question.active::after {
+            transform: rotate(180deg);
+        }
+        
+        .faq-answer {
+            padding: 0 1.5rem;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.3s;
+            color: var(--text-secondary);
+        }
+        
+        .faq-answer.active {
+            padding: 1.2rem 1.5rem;
+            max-height: 500px;
+        }
+        
+        .faq-answer ul {
+            margin: 0.5rem 0 0.5rem 1.5rem;
+        }
+        
+        .faq-answer li {
+            margin-bottom: 0.3rem;
+        }
+        
+        .contact-box {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 2.5rem;
+            border-radius: 16px;
+            margin: 3rem 0;
+            text-align: center;
+        }
+        
+        .contact-box h3 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+        }
+        
+        .contact-box p {
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+            opacity: 0.95;
+        }
+        
+        .contact-methods {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .contact-method {
+            background: rgba(255,255,255,0.15);
+            padding: 1.5rem;
+            border-radius: 12px;
+            transition: all 0.3s;
+        }
+        
+        .contact-method:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-4px);
+        }
+        
+        .contact-method h4 {
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .contact-method a {
+            color: #ffd700;
+            text-decoration: none;
+            font-weight: 600;
+            word-break: break-all;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+        
+        .status-operational {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 2rem;
+            padding: 0.8rem 1.5rem;
+            background: var(--primary-gradient);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .back-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        @media (max-width: 968px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                position: static;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .main-content {
+                padding: 2rem 1.5rem;
+            }
+            
+            .contact-methods {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>💬 Support Center</h1>
+        <p>Get help with your Chinese learning journey</p>
+        <div class="quick-links">
+            <a href="#faq" class="quick-link-btn">📖 FAQ</a>
+            <a href="#account" class="quick-link-btn">👤 Account</a>
+            <a href="#technical" class="quick-link-btn">🔧 Technical</a>
+            <a href="#contact" class="quick-link-btn">📧 Contact</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="content-grid">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-card">
+                    <h3>🔥 Popular Topics</h3>
+                    <ul>
+                        <li><a href="#cancel">Cancel Subscription</a></li>
+                        <li><a href="#refund">Request Refund</a></li>
+                        <li><a href="#audio">Audio Not Working</a></li>
+                        <li><a href="#progress">Lost Progress</a></li>
+                        <li><a href="#download">Download Data</a></li>
+                    </ul>
+                </div>
+                
+                <div class="sidebar-card">
+                    <h3>📊 System Status</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 0.5rem;">All systems operational</p>
+                    <div class="status-badge status-operational">✓ Online</div>
+                </div>
+                
+                <div class="sidebar-card">
+                    <h3>📚 Resources</h3>
+                    <ul>
+                        <li><a href="/privacy-policy">Privacy Policy</a></li>
+                        <li><a href="/terms">Terms of Service</a></li>
+                        <li><a href="https://www.chinesetest.cn" target="_blank">Official HSK Site</a></li>
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search for help... (e.g., 'cancel subscription')" onkeyup="searchFAQ()">
+                </div>
+
+                <!-- Getting Started -->
+                <div id="faq" class="faq-category">
+                    <h2>🚀 Getting Started</h2>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How do I create an account?
+                        </div>
+                        <div class="faq-answer">
+                            <p>You can sign up using:</p>
+                            <ul>
+                                <li><strong>Google:</strong> Click "Continue with Google" button</li>
+                                <li><strong>Facebook:</strong> Click "Continue with Facebook" button</li>
+                                <li><strong>Apple:</strong> Click "Continue with Apple" button</li>
+                                <li><strong>Email:</strong> Enter your email and create a password</li>
+                            </ul>
+                            <p>After signing up, you'll automatically get a <strong>7-day free trial</strong> of Premium features!</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            What's included in the free version?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Free users can access:</p>
+                            <ul>
+                                <li>First 10 vocabulary words from HSK 1</li>
+                                <li>Basic flashcard practice</li>
+                                <li>Character stroke animations</li>
+                                <li>Audio pronunciations</li>
+                            </ul>
+                            <p>Premium unlocks all 5,000+ words across HSK 1-6, unlimited practice, and advanced features.</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How does the 7-day free trial work?
+                        </div>
+                        <div class="faq-answer">
+                            <p>When you sign up, you get 7 days of <strong>full Premium access</strong> completely free.</p>
+                            <ul>
+                                <li>No credit card required to start trial</li>
+                                <li>Full access to all HSK levels (1-6)</li>
+                                <li>Unlimited character practice and pronunciation</li>
+                                <li>You'll be notified before trial ends</li>
+                                <li>Upgrade anytime during or after trial</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account & Billing -->
+                <div id="account" class="faq-category">
+                    <h2>👤 Account & Billing</h2>
+                    
+                    <div id="cancel" class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How do I cancel my subscription?
+                        </div>
+                        <div class="faq-answer">
+                            <p><strong>Option 1: In-App Cancellation</strong></p>
+                            <ol>
+                                <li>Open Mandarin Master app</li>
+                                <li>Go to Settings ⚙️ → Subscriptions</li>
+                                <li>Click "Cancel Subscription"</li>
+                                <li>Confirm cancellation</li>
+                            </ol>
+                            
+                            <p><strong>Option 2: PayPal</strong></p>
+                            <ol>
+                                <li>Log into your PayPal account</li>
+                                <li>Go to Settings → Payments → Manage automatic payments</li>
+                                <li>Find "Mandarin Master" and click Cancel</li>
+                            </ol>
+                            
+                            <p><strong>Option 3: iOS (App Store)</strong></p>
+                            <ol>
+                                <li>Open Settings app on iPhone</li>
+                                <li>Tap your name → Subscriptions</li>
+                                <li>Find Mandarin Master → Cancel Subscription</li>
+                            </ol>
+                            
+                            <p style="margin-top: 1rem;"><strong>Note:</strong> You'll keep Premium access until the end of your billing period.</p>
+                        </div>
+                    </div>
+
+                    <div id="refund" class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Can I get a refund?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Yes! We offer a <strong>30-day money-back guarantee</strong>.</p>
+                            <p>To request a refund:</p>
+                            <ol>
+                                <li>Email us at <strong>support@mandarinmaster.app</strong></li>
+                                <li>Include your subscription email and reason for refund</li>
+                                <li>We'll process your refund within 5-7 business days</li>
+                            </ol>
+                            <p>Refunds are issued to your original payment method (PayPal or credit card).</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How do I change my email address?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Your email is linked to your sign-in method:</p>
+                            <ul>
+                                <li><strong>Google/Facebook/Apple:</strong> Update email in your Google/Facebook/Apple account settings</li>
+                                <li><strong>Email sign-in:</strong> Go to Settings → Account → Change Email</li>
+                            </ul>
+                            <p>If you need to transfer your progress to a different account, contact <strong>support@mandarinmaster.app</strong> and we'll help you migrate.</p>
+                        </div>
+                    </div>
+
+                    <div id="progress" class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Will I lose my progress if I cancel?
+                        </div>
+                        <div class="faq-answer">
+                            <p><strong>No!</strong> Your learning progress is permanently saved.</p>
+                            <ul>
+                                <li>All vocabulary words you've learned are saved</li>
+                                <li>Your scores and streaks are preserved</li>
+                                <li>You can access first 10 words for free after cancellation</li>
+                                <li>If you resubscribe later, everything is restored immediately</li>
+                            </ul>
+                            <p>Your data is saved for up to 2 years after cancellation.</p>
+                        </div>
+                    </div>
+
+                    <div id="download" class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Can I download my learning data?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Yes! You can export your data anytime:</p>
+                            <ol>
+                                <li>Go to Settings → Privacy & Data</li>
+                                <li>Click "Download My Data"</li>
+                                <li>You'll receive a ZIP file containing:
+                                    <ul>
+                                        <li>Vocabulary words you've learned (CSV format)</li>
+                                        <li>Your quiz scores and progress</li>
+                                        <li>Study time statistics</li>
+                                        <li>Account information</li>
+                                    </ul>
+                                </li>
+                            </ol>
+                            <p>Data export complies with GDPR regulations.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical Issues -->
+                <div id="technical" class="faq-category">
+                    <h2>🔧 Technical Issues</h2>
+                    
+                    <div id="audio" class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Why isn't the audio working?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Try these troubleshooting steps:</p>
+                            <ol>
+                                <li><strong>Check volume:</strong> Ensure your device volume is up</li>
+                                <li><strong>Unmute:</strong> Make sure device isn't on silent/vibrate mode</li>
+                                <li><strong>Browser permissions:</strong> Allow audio in browser settings</li>
+                                <li><strong>Refresh page:</strong> Press Ctrl+F5 (or Cmd+R on Mac)</li>
+                                <li><strong>Clear cache:</strong> Clear browser cache and cookies</li>
+                                <li><strong>Try different browser:</strong> Test in Chrome, Firefox, or Safari</li>
+                            </ol>
+                            <p>If issue persists, contact support with your device type and browser version.</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            The app is running slowly or freezing
+                        </div>
+                        <div class="faq-answer">
+                            <p>Performance troubleshooting:</p>
+                            <ul>
+                                <li><strong>Close other tabs:</strong> Free up browser memory</li>
+                                <li><strong>Update browser:</strong> Use latest version of Chrome/Safari/Firefox</li>
+                                <li><strong>Disable extensions:</strong> Ad blockers can interfere with app</li>
+                                <li><strong>Clear storage:</strong> Settings → Clear app data and re-login</li>
+                                <li><strong>Check internet:</strong> Ensure stable connection (minimum 3 Mbps)</li>
+                                <li><strong>Restart device:</strong> Simple restart often fixes issues</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Character drawing isn't recognizing my strokes
+                        </div>
+                        <div class="faq-answer">
+                            <p>Drawing recognition tips:</p>
+                            <ul>
+                                <li>Draw strokes in the <strong>correct order</strong> (watch animation first)</li>
+                                <li>Use consistent <strong>stroke direction</strong> (left-to-right, top-to-bottom)</li>
+                                <li>Draw at a <strong>moderate speed</strong> (not too fast or slow)</li>
+                                <li>Stay within the practice area</li>
+                                <li>For touch screens: Use a stylus for better accuracy</li>
+                                <li>Calibrate: Settings → Drawing → Sensitivity adjustment</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            I can't log in to my account
+                        </div>
+                        <div class="faq-answer">
+                            <p>Login troubleshooting:</p>
+                            <ol>
+                                <li><strong>Verify sign-in method:</strong> Use same method you signed up with (Google/Facebook/Apple/Email)</li>
+                                <li><strong>Check email:</strong> Make sure you're using the correct email address</li>
+                                <li><strong>Reset password:</strong> If using email login, click "Forgot Password"</li>
+                                <li><strong>Clear cookies:</strong> Browser settings → Clear site data for mandarinmaster.app</li>
+                                <li><strong>Disable VPN:</strong> VPNs can interfere with OAuth login</li>
+                                <li><strong>Contact support:</strong> Email support@mandarinmaster.app with your registered email</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Can I use this offline?
+                        </div>
+                        <div class="faq-answer">
+                            <p><strong>Premium members:</strong> Yes, with limitations</p>
+                            <ul>
+                                <li>Download lessons for offline use (Android app only)</li>
+                                <li>Character writing works offline</li>
+                                <li>Audio pronunciations available if pre-cached</li>
+                                <li>Progress syncs when you reconnect</li>
+                            </ul>
+                            <p><strong>Free users:</strong> Internet connection required</p>
+                            <p><strong>Note:</strong> Full offline mode coming to iOS and web version soon!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Learning & Content -->
+                <div class="faq-category">
+                    <h2>📚 Learning & Content</h2>
+                    
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How accurate is the HSK content?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Our curriculum is <strong>100% aligned</strong> with the official HSK syllabus:</p>
+                            <ul>
+                                <li>Based on syllabuses published by Hanban (Chinese Testing International)</li>
+                                <li>Reviewed by certified HSK teachers with 20+ years experience</li>
+                                <li>Updated regularly to match latest exam formats</li>
+                                <li>All example sentences verified by native speakers</li>
+                                <li>Pronunciations recorded by professional voice actors</li>
+                            </ul>
+                            <p>Students using Mandarin Master have achieved a <strong>94% pass rate</strong> on HSK exams!</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            What's the difference between HSK levels?
+                        </div>
+                        <div class="faq-answer">
+                            <ul>
+                                <li><strong>HSK 1:</strong> 150 words - Basic greetings and simple questions</li>
+                                <li><strong>HSK 2:</strong> 300 words - Daily conversations and common situations</li>
+                                <li><strong>HSK 3:</strong> 600 words - Work, travel, and complex topics</li>
+                                <li><strong>HSK 4:</strong> 1,200 words - Fluent conversation on most topics</li>
+                                <li><strong>HSK 5:</strong> 2,500 words - Read newspapers and watch movies</li>
+                                <li><strong>HSK 6:</strong> 5,000 words - Native-level fluency</li>
+                            </ul>
+                            <p>Each level builds on the previous one. We recommend starting at HSK 1 even if you know some Chinese.</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            How long does it take to complete each level?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Average study times with 30 min/day practice:</p>
+                            <ul>
+                                <li><strong>HSK 1:</strong> 2-3 months (150 words)</li>
+                                <li><strong>HSK 2:</strong> 3-4 months (300 words total)</li>
+                                <li><strong>HSK 3:</strong> 6-8 months (600 words total)</li>
+                                <li><strong>HSK 4:</strong> 8-12 months (1,200 words total)</li>
+                                <li><strong>HSK 5:</strong> 12-18 months (2,500 words total)</li>
+                                <li><strong>HSK 6:</strong> 18-24 months (5,000 words total)</li>
+                            </ul>
+                            <p><strong>Pro tip:</strong> Consistency matters more than intensity. Daily 20-minute practice beats 3-hour weekend cram sessions!</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <div class="faq-question" onclick="toggleFAQ(this)">
+                            Can I skip to higher HSK levels?
+                        </div>
+                        <div class="faq-answer">
+                            <p>Yes! If you already have Chinese knowledge:</p>
+                            <ol>
+                                <li>Take our <strong>placement test</strong> (Settings → Take Placement Test)</li>
+                                <li>Based on your score, we'll recommend the right starting level</li>
+                                <li>You can manually select any level in Premium</li>
+                            </ol>
+                            <p>However, we recommend reviewing lower levels even if familiar - it reinforces foundations and fills knowledge gaps.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contact Section -->
+                <div id="contact" class="contact-box">
+                    <h3>💬 Still Need Help?</h3>
+                    <p>Our support team is here to help you succeed!</p>
+                    
+                    <div class="contact-methods">
+                        <div class="contact-method">
+                            <h4>📧 Email Support</h4>
+                            <a href="mailto:support@mandarinmaster.app">support@mandarinmaster.app</a>
+                            <p style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.9;">Response within 24 hours</p>
+                        </div>
+                        
+                        <div class="contact-method">
+                            <h4>💬 Live Chat</h4>
+                            <a href="#" onclick="alert('Live chat opening soon!'); return false;">Chat with us</a>
+                            <p style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.9;">Mon-Fri 9am-6pm CAT</p>
+                        </div>
+                        
+                        <div class="contact-method">
+                            <h4>🐦 Twitter</h4>
+                            <a href="https://twitter.com/mandarinmaster" target="_blank">@mandarinmaster</a>
+                            <p style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.9;">Quick responses</p>
+                        </div>
+                    </div>
+                    
+                    <p style="margin-top: 2rem; font-size: 0.95rem; opacity: 0.85;">
+                        <strong>Business Hours:</strong> Monday - Friday, 9:00 AM - 6:00 PM (Central Africa Time)<br>
+                        We respond to all emails within 24 hours, usually much faster!
+                    </p>
+                </div>
+
+                <div style="text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 2px solid var(--border-color);">
+                    <h3 style="color: var(--accent-color); margin-bottom: 1rem;">Didn't find what you're looking for?</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                        Send us an email and we'll add it to this FAQ!
+                    </p>
+                    <a href="mailto:support@mandarinmaster.app" class="back-link">📧 Contact Support</a>
+                    <br>
+                    <a href="/" class="back-link" style="margin-top: 1rem; background: white; color: var(--accent-color);">← Back to App</a>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // FAQ Toggle
+        function toggleFAQ(element) {
+            element.classList.toggle('active');
+            const answer = element.nextElementSibling;
+            answer.classList.toggle('active');
+        }
+
+        // Search Functionality
+        function searchFAQ() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const faqItems = document.querySelectorAll('.faq-item');
+            
+            let foundCount = 0;
+            
+            faqItems.forEach(item => {
+                const question = item.querySelector('.faq-question').textContent.toLowerCase();
+                const answer = item.querySelector('.faq-answer').textContent.toLowerCase();
+                
+                if (question.includes(input) || answer.includes(input)) {
+                    item.style.display = 'block';
+                    foundCount++;
+                    
+                    // Auto-expand if searching
+                    if (input.length > 2) {
+                        item.querySelector('.faq-question').classList.add('active');
+                        item.querySelector('.faq-answer').classList.add('active');
+                    }
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            // Show no results message
+            const existing = document.getElementById('no-results');
+            if (existing) existing.remove();
+            
+            if (foundCount === 0 && input.length > 0) {
+                const noResults = document.createElement('div');
+                noResults.id = 'no-results';
+                noResults.style.textAlign = 'center';
+                noResults.style.padding = '2rem';
+                noResults.style.color = 'var(--text-secondary)';
+                noResults.innerHTML = `
+                    <p style="font-size: 1.2rem; margin-bottom: 1rem;">🔍 No results found for "${input}"</p>
+                    <p>Try different keywords or <a href="mailto:support@mandarinmaster.app" style="color: var(--accent-color);">contact support</a></p>
+                `;
+                document.querySelector('.main-content').appendChild(noResults);
+            }
+        }
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

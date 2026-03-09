@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mandarin Master - Learn Chinese with HSK</title>
+    <meta name="description" content="Master Mandarin Chinese with interactive HSK vocabulary, character writing practice, and pronunciation training. Start free today!">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="dark-mode">
+    <div class="app-wrapper">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo-area">
+                <h1>Mandarin<br>Master</h1>
+            </div>
+
+            <div class="level-selector">
+                <label for="level-select">Current Level</label>
+                <select id="level-select">
+                    <option value="1">HSK 1</option>
+                    <option value="2" disabled>HSK 2 🔒</option>
+                    <option value="3" disabled>HSK 3 🔒</option>
+                    <option value="4" disabled>HSK 4 🔒</option>
+                    <option value="5" disabled>HSK 5 🔒</option>
+                    <option value="6" disabled>HSK 6 🔒</option>
+                </select>
+            </div>
+
+            <ul class="nav-links">
+                <li class="active" data-section="vocab">
+                    <span class="icon">字</span> Vocabulary
+                </li>
+                <li data-section="phrases" class="locked">
+                    <span class="icon">句</span> Phrases
+                </li>
+                <li data-section="story" class="locked">
+                    <span class="icon">书</span> Story
+                </li>
+                <li data-section="resources" class="locked">
+                    <span class="icon">网</span> Resources
+                </li>
+                <li data-section="leaderboard">
+                    <span class="icon">🏆</span> Leaderboard
+                </li>
+            </ul>
+
+            <button id="theme-toggle" class="theme-btn">☀️ Light Mode</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+
+            <!-- SECTION: VOCABULARY -->
+            <section id="vocab-section" class="content-section active">
+                <header class="section-header">
+                    <h2>Vocabulary Practice</h2>
+                    <div class="progress-bar-container">
+                        <span id="progress-text">0/0 Words</span>
+                        <div class="progress-bar">
+                            <div id="progress-segment" class="progress-segment"></div>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="card learning-card">
+                    <div class="learning-content-wrapper">
+                        <div class="character-display">
+                            <div id="visual-aid-container" class="visual-aid hidden">
+                                <img id="visual-aid-img" src="" alt="Visual Aid">
+                            </div>
+                            <h2 id="pinyin-display">Loading...</h2>
+                            <p id="english-display">...</p>
+                            <button id="audio-btn" class="icon-btn" title="Play Audio">🔊</button>
+                        </div>
+
+                        <div id="character-target" class="canvas-container"></div>
+                    </div>
+
+                    <div class="controls">
+                        <button id="pronounce-btn" class="action-btn">🎙️ Pronounce</button>
+                        <button id="draw-btn" class="action-btn" disabled>✍️ Draw</button>
+                        <button id="next-btn" class="action-btn" disabled>➡️ Next</button>
+                        <button id="share-btn" class="action-btn" title="Share Progress">🔗 Share</button>
+                    </div>
+
+                    <div id="feedback" class="feedback">Please select a level to start.</div>
+                </div>
+            </section>
+
+            <!-- SECTION: PHRASES -->
+            <section id="phrases-section" class="content-section">
+                <header class="section-header">
+                    <h2>Essential Phrases</h2>
+                    <p>Master these common patterns.</p>
+                </header>
+                <div id="phrases-list" class="list-container">
+                    <!-- Dynamic Content -->
+                </div>
+            </section>
+
+            <!-- SECTION: STORY -->
+            <section id="story-section" class="content-section">
+                <header class="section-header">
+                    <h2>Level Story</h2>
+                    <button id="toggle-pinyin-btn" class="secondary-btn">Toggle Pinyin</button>
+                </header>
+                <div class="card story-card">
+                    <h3 id="story-title">Title</h3>
+                    <div id="story-content" class="story-content">
+                        <!-- Dynamic Content -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION: RESOURCES -->
+            <section id="resources-section" class="content-section">
+                <header class="section-header">
+                    <h2>Recommended Resources</h2>
+                </header>
+                <div id="resources-grid" class="grid-container">
+                    <!-- Dynamic Content -->
+                </div>
+            </section>
+
+            <!-- SECTION: LEADERBOARD -->
+            <section id="leaderboard-section" class="content-section">
+                <header class="section-header">
+                    <h2>Global Leaderboard 🏆</h2>
+                </header>
+                <div class="card">
+                    <div id="leaderboard-list">
+                        <!-- Dynamic Content -->
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal hidden">
+        <div class="modal-content">
+            <!-- Close button removed for mandatory auth -->
+            <h2>Sign In / Sign Up</h2>
+            <p>Join Mandarin Master to save progress and access Pro features.</p>
+            <div class="auth-buttons">
+                <button class="auth-btn google">Continue with Google</button>
+                <button class="auth-btn facebook">Continue with Facebook</button>
+                <button class="auth-btn apple">Continue with Apple</button>
+                <button class="auth-btn email">Continue with Email</button>
+            </div>
+            <p class="trial-text">Start your 7-day free trial today! Then $1/month.</p>
+        </div>
+    </div>
+
+    <!-- Upgrade Modal -->
+    <div id="upgrade-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>Unlock Premium 👑</h2>
+            <p>This content is for Pro members only.</p>
+            <ul class="premium-features">
+                <li>✅ HSK 3-6 Levels</li>
+                <li>✅ Advanced Phrases & Stories</li>
+                <li>✅ Memory Palace Visuals</li>
+            </ul>
+            <div id="paypal-button-container" style="margin-top:20px;"></div>
+        </div>
+    </div>
+
+    <!-- HSK Data Loading -->
+    <script src="data/hsk1.js"></script>
+    <script src="data/hsk2.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@2.2/dist/hanzi-writer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=sb&currency=USD"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
