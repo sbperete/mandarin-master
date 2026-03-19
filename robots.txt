@@ -1,0 +1,10 @@
+# Mandarin Master - robots.txt
+User-agent: *
+Allow: /
+
+# Sitemap (update domain after deployment)
+# Sitemap: https://mandarinmaster.app/sitemap.xml
+
+# Disallow admin/API paths
+Disallow: /api/
+Disallow: /.netlify/

@@ -2,3 +2,7 @@
 /privacy  /privacy-policy.html  200
 /support  /support.html  200
 /terms  /support.html  200
+/reset-password  /reset-password.html  200
+
+# Custom 404
+/*  /404.html  404

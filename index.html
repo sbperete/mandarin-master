@@ -7,6 +7,17 @@
     <title>Mandarin Master - Learn Chinese with HSK</title>
     <meta name="description" content="Master Mandarin Chinese with interactive HSK vocabulary, character writing practice, and pronunciation training. Start free today!">
     <link rel="stylesheet" href="styles.css">
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00BFA5">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mandarin Master">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+    <!-- Supabase SDK (must load before js/supabase.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 
 <body class="dark-mode">
@@ -48,10 +59,35 @@
             </ul>
 
             <button id="theme-toggle" class="theme-btn">☀️ Light Mode</button>
+
+            <!-- Auth: Logged OUT -->
+            <div data-auth="logged-out" class="sidebar-auth">
+                <button class="sidebar-auth-btn" onclick="AuthModal.show('signin')">Log In</button>
+                <button class="sidebar-auth-btn sidebar-auth-primary" onclick="AuthModal.show('signup')">Get Started Free</button>
+            </div>
+
+            <!-- Auth: Logged IN -->
+            <div data-auth="logged-in" class="sidebar-auth" style="display:none;">
+                <div class="sidebar-user" id="sidebar-user-info"></div>
+                <button class="sidebar-auth-btn" onclick="auth.signOut()">Sign Out</button>
+            </div>
         </nav>
 
         <!-- Main Content Area -->
         <main class="main-content">
+
+            <!-- Mobile Level Selector (visible only on mobile) -->
+            <div class="mobile-level-selector">
+                <label for="mobile-level-select">Level:</label>
+                <select id="mobile-level-select">
+                    <option value="1">HSK 1</option>
+                    <option value="2" disabled>HSK 2 🔒</option>
+                    <option value="3" disabled>HSK 3 🔒</option>
+                    <option value="4" disabled>HSK 4 🔒</option>
+                    <option value="5" disabled>HSK 5 🔒</option>
+                    <option value="6" disabled>HSK 6 🔒</option>
+                </select>
+            </div>
 
             <!-- SECTION: VOCABULARY -->
             <section id="vocab-section" class="content-section active">
@@ -76,17 +112,59 @@
                             <button id="audio-btn" class="icon-btn" title="Play Audio">🔊</button>
                         </div>
 
-                        <div id="character-target" class="canvas-container"></div>
+                        <div class="canvas-area">
+                            <div class="canvas-wrapper">
+                                <div class="canvas-label">Guided Trace</div>
+                                <div id="character-target" class="canvas-container"></div>
+                            </div>
+                            <div class="canvas-wrapper free-draw-wrapper" id="free-draw-wrapper" style="display:none;">
+                                <div class="canvas-label">Free Draw</div>
+                                <div class="canvas-container free-draw-container">
+                                    <canvas id="free-draw-canvas" width="260" height="260"></canvas>
+                                    <button id="clear-canvas-btn" class="clear-canvas-btn" title="Clear">🗑️</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step Progress Indicator -->
+                    <div class="step-progress">
+                        <div class="step-item active" id="step-listen" data-step="1">
+                            <span class="step-number">1</span>
+                            <span class="step-label">Listen</span>
+                        </div>
+                        <div class="step-connector"></div>
+                        <div class="step-item" id="step-speak" data-step="2">
+                            <span class="step-number">2</span>
+                            <span class="step-label">Speak</span>
+                        </div>
+                        <div class="step-connector"></div>
+                        <div class="step-item" id="step-write" data-step="3">
+                            <span class="step-number">3</span>
+                            <span class="step-label">Write</span>
+                        </div>
+                        <div class="step-connector"></div>
+                        <div class="step-item" id="step-next" data-step="4">
+                            <span class="step-number">4</span>
+                            <span class="step-label">Next</span>
+                        </div>
                     </div>
 
                     <div class="controls">
-                        <button id="pronounce-btn" class="action-btn">🎙️ Pronounce</button>
-                        <button id="draw-btn" class="action-btn" disabled>✍️ Draw</button>
-                        <button id="next-btn" class="action-btn" disabled>➡️ Next</button>
-                        <button id="share-btn" class="action-btn" title="Share Progress">🔗 Share</button>
+                        <button id="listen-btn" class="action-btn action-btn-listen">🔊 Listen</button>
+                        <button id="pronounce-btn" class="action-btn action-btn-speak" disabled>🎙️ Speak</button>
+                        <button id="draw-btn" class="action-btn action-btn-write" disabled>✍️ Write</button>
+                        <button id="next-btn" class="action-btn action-btn-next" disabled>➡️ Next</button>
+                        <button id="share-btn" class="action-btn action-btn-share" title="Share Progress">🔗</button>
                     </div>
 
-                    <div id="feedback" class="feedback">Please select a level to start.</div>
+                    <!-- Canvas Mode Toggle -->
+                    <div class="canvas-mode-toggle" id="canvas-mode-toggle" style="display:none;">
+                        <button class="mode-btn active" id="mode-trace-btn" data-mode="trace">📐 Guided Trace</button>
+                        <button class="mode-btn" id="mode-free-btn" data-mode="free">🖌️ Free Draw</button>
+                    </div>
+
+                    <div id="feedback" class="feedback">Press Listen to hear the word.</div>
                 </div>
             </section>
 
@@ -140,50 +218,242 @@
         </main>
     </div>
 
-    <!-- Login Modal -->
-    <div id="login-modal" class="modal hidden">
-        <div class="modal-content">
-            <!-- Close button removed for mandatory auth -->
-            <h2>Sign In / Sign Up</h2>
-            <p>Join Mandarin Master to save progress and access Pro features.</p>
-            <div class="auth-buttons">
-                <button class="auth-btn google">Continue with Google</button>
-                <button class="auth-btn facebook">Continue with Facebook</button>
-                <button class="auth-btn apple">Continue with Apple</button>
-                <button class="auth-btn email">Continue with Email</button>
+    <!-- Auth Modal (Supabase) -->
+    <div id="auth-modal-overlay" class="am-overlay am-hidden">
+        <div class="am-modal" role="dialog" aria-labelledby="am-title" aria-modal="true">
+            <button class="am-close" id="am-close-btn" aria-label="Close">&times;</button>
+            <div class="am-header">
+                <h2 id="am-title">Welcome to Mandarin Master</h2>
+                <p class="am-subtitle">Start your Chinese learning journey</p>
             </div>
-            <p class="trial-text">Start your 7-day free trial today! Then $1/month.</p>
+            <div id="auth-error" class="am-error" style="display:none;" role="alert"></div>
+            <div class="am-tabs" role="tablist">
+                <button class="am-tab am-tab-active" id="am-tab-signin" role="tab" aria-selected="true" data-tab="signin">Sign In</button>
+                <button class="am-tab" id="am-tab-signup" role="tab" aria-selected="false" data-tab="signup">Sign Up</button>
+            </div>
+            <form class="am-form" id="am-form-signin" novalidate>
+                <div class="am-field">
+                    <label for="am-signin-email">Email</label>
+                    <input type="email" id="am-signin-email" placeholder="you@example.com" required autocomplete="email">
+                </div>
+                <div class="am-field">
+                    <label for="am-signin-password">Password</label>
+                    <input type="password" id="am-signin-password" placeholder="Your password" required minlength="6" autocomplete="current-password">
+                </div>
+                <button type="submit" class="am-submit" id="am-signin-submit">Sign In</button>
+                <button type="button" class="am-link-btn" id="am-forgot-btn">Forgot password?</button>
+            </form>
+            <form class="am-form am-hidden" id="am-form-signup" novalidate>
+                <div class="am-field">
+                    <label for="am-signup-name">Display Name</label>
+                    <input type="text" id="am-signup-name" placeholder="Your name" required minlength="2" autocomplete="name">
+                </div>
+                <div class="am-field">
+                    <label for="am-signup-email">Email</label>
+                    <input type="email" id="am-signup-email" placeholder="you@example.com" required autocomplete="email">
+                </div>
+                <div class="am-field">
+                    <label for="am-signup-password">Password</label>
+                    <input type="password" id="am-signup-password" placeholder="Min 6 characters" required minlength="6" autocomplete="new-password">
+                </div>
+                <button type="submit" class="am-submit" id="am-signup-submit">Create Account</button>
+            </form>
+            <form class="am-form am-hidden" id="am-form-reset" novalidate>
+                <p class="am-reset-info">Enter your email and we'll send a reset link.</p>
+                <div class="am-field">
+                    <label for="am-reset-email">Email</label>
+                    <input type="email" id="am-reset-email" placeholder="you@example.com" required autocomplete="email">
+                </div>
+                <button type="submit" class="am-submit" id="am-reset-submit">Send Reset Link</button>
+                <button type="button" class="am-link-btn" id="am-back-signin-btn">&larr; Back to Sign In</button>
+            </form>
+            <p class="am-footer">Try 25 words free. Premium unlocks all HSK 1-6 levels.</p>
         </div>
     </div>
+
+    <!-- Auth Modal Styles -->
+    <style>
+        .am-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;justify-content:center;align-items:center;padding:16px;transition:opacity .2s ease}
+        .am-overlay.am-hidden{display:none}
+        .am-modal{background:#1a1e2e;border:1px solid rgba(255,255,255,.12);border-radius:16px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;padding:32px 28px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:am-slide-up .25s ease-out}
+        @keyframes am-slide-up{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+        .am-close{position:absolute;top:12px;right:16px;background:none;border:none;color:#8892a4;font-size:1.8rem;cursor:pointer;line-height:1;padding:4px 8px;border-radius:8px;transition:background .15s,color .15s}
+        .am-close:hover{background:rgba(255,255,255,.08);color:#fff}
+        .am-header{text-align:center;margin-bottom:24px}
+        .am-header h2{color:#ecf0f1;font-size:1.5rem;font-weight:700;margin:0 0 4px}
+        .am-subtitle{color:#8892a4;font-size:.9rem;margin:0}
+        .am-error{background:rgba(231,76,60,.15);border:1px solid rgba(231,76,60,.4);color:#e74c3c;padding:10px 14px;border-radius:8px;font-size:.85rem;margin-bottom:16px;text-align:center}
+        .am-tabs{display:flex;gap:0;margin-bottom:20px;background:rgba(255,255,255,.05);border-radius:10px;padding:3px}
+        .am-tab{flex:1;padding:10px 16px;border:none;border-radius:8px;background:transparent;color:#8892a4;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .2s}
+        .am-tab:hover{color:#ecf0f1}
+        .am-tab-active{background:rgba(0,191,165,.2);color:#00BFA5}
+        .am-form{display:flex;flex-direction:column;gap:14px}
+        .am-form.am-hidden{display:none}
+        .am-field label{display:block;font-size:.8rem;font-weight:600;color:#8892a4;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+        .am-field input{width:100%;padding:11px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#ecf0f1;font-size:.95rem;outline:none;transition:border-color .2s}
+        .am-field input::placeholder{color:#5a6478}
+        .am-field input:focus{border-color:#00BFA5}
+        .am-field input:invalid:not(:placeholder-shown){border-color:#e74c3c}
+        .am-submit{width:100%;padding:13px 20px;background:linear-gradient(135deg,#00BFA5,#2ecc71);border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;transition:all .2s;margin-top:4px}
+        .am-submit:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,191,165,.35)}
+        .am-submit:disabled{opacity:.5;cursor:not-allowed;transform:none}
+        .am-link-btn{background:none;border:none;color:#00BFA5;font-size:.85rem;cursor:pointer;padding:4px 0;text-align:center;transition:color .15s}
+        .am-link-btn:hover{color:#2ecc71;text-decoration:underline}
+        .am-reset-info{color:#8892a4;font-size:.9rem;text-align:center;margin:0 0 4px}
+        .am-footer{text-align:center;color:#5a6478;font-size:.8rem;margin-top:20px;margin-bottom:0}
+        .sidebar-auth{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+        .sidebar-auth-btn{padding:10px 14px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:rgba(255,255,255,.06);color:#ecf0f1;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .2s;text-align:center}
+        .sidebar-auth-btn:hover{background:rgba(255,255,255,.12);transform:translateY(-1px)}
+        .sidebar-auth-primary{background:linear-gradient(135deg,#00BFA5,#2ecc71);border-color:transparent;color:#fff}
+        .sidebar-auth-primary:hover{box-shadow:0 4px 12px rgba(0,191,165,.35)}
+        .sidebar-user{font-size:.85rem;color:#8892a4;padding:4px 0;text-align:center;word-break:break-all}
+        @media(max-width:480px){.am-modal{padding:24px 20px;border-radius:12px}.am-header h2{font-size:1.3rem}.am-social-btn{font-size:.88rem;padding:11px 14px}}
+        @media(max-width:768px){.sidebar-auth{flex-direction:row;gap:8px}.sidebar-auth-btn{flex:1;padding:8px 10px;font-size:.8rem}}
+    </style>
 
     <!-- Upgrade Modal -->
     <div id="upgrade-modal" class="modal hidden">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
-            <h2>Unlock Premium 👑</h2>
-            <p>This content is for Pro members only.</p>
+            <h2 id="upgrade-title">Unlock Full Access 👑</h2>
+            <p id="upgrade-subtitle">You've mastered 25 words! Upgrade to continue learning.</p>
             <ul class="premium-features">
-                <li>✅ HSK 3-6 Levels</li>
-                <li>✅ Advanced Phrases & Stories</li>
-                <li>✅ Memory Palace Visuals</li>
+                <li>All 4,597 words across HSK 1-6</li>
+                <li>139 phrases + 6 immersive stories</li>
+                <li>Character stroke tracing (HanziWriter)</li>
+                <li>Speech recognition & pronunciation practice</li>
+                <li>Dark & light mode, progress tracking</li>
             </ul>
-            <div id="paypal-button-container" style="margin-top:20px;"></div>
+            <div class="pricing-options">
+                <div class="pricing-card pricing-highlight">
+                    <div class="pricing-badge">Lifetime Deal</div>
+                    <h3>Premium Access</h3>
+                    <div class="pricing-amount">$9.99</div>
+                    <p class="pricing-desc">One-time payment — unlock everything, forever</p>
+                    <p class="pricing-compare">Less than one coffee a month for a year of learning</p>
+                    <div id="paypal-button-container" style="margin-top:12px;"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- HSK Data Loading -->
     <script src="data/hsk1.js"></script>
     <script src="data/hsk2.js"></script>
+    <script src="data/hsk3.js"></script>
+    <script src="data/hsk4.js"></script>
+    <script src="data/hsk5.js"></script>
+    <script src="data/hsk6.js"></script>
 
-    <!-- Firebase Auth SDK (compat mode for simplicity) -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="firebase-config.js"></script>
+    <!-- Auth: Supabase client + auth module (load order matters) -->
+    <script src="js/supabase.js"></script>
+    <script src="js/auth.js"></script>
 
+    <!-- Auth Modal Controller (depends on auth.js + DOM) -->
+    <script>
+    (function(){
+        'use strict';
+        var overlay=document.getElementById('auth-modal-overlay'),closeBtn=document.getElementById('am-close-btn'),tabSignin=document.getElementById('am-tab-signin'),tabSignup=document.getElementById('am-tab-signup'),formSignin=document.getElementById('am-form-signin'),formSignup=document.getElementById('am-form-signup'),formReset=document.getElementById('am-form-reset'),forgotBtn=document.getElementById('am-forgot-btn'),backBtn=document.getElementById('am-back-signin-btn'),tabs=document.querySelector('.am-tabs');
+
+        window.AuthModal={show:show,hide:hide, isClosable:true};
+
+        function show(initialTab){
+            overlay.classList.remove('am-hidden');
+            document.body.style.overflow='hidden';
+            switchTab(initialTab==='signup'?'signup':'signin');
+            setTimeout(function(){var el=overlay.querySelector('.am-form:not(.am-hidden) input');if(el)el.focus();},100);
+        }
+        function hide(){
+            if(!window.AuthModal.isClosable) return;
+            overlay.classList.add('am-hidden');
+            document.body.style.overflow='';
+            if(window.auth)window.auth.clearError();
+        }
+        function switchTab(tab){
+            if(window.auth)window.auth.clearError();
+            formSignin.classList.add('am-hidden');formSignup.classList.add('am-hidden');formReset.classList.add('am-hidden');tabs.style.display='';
+            tabSignin.classList.remove('am-tab-active');tabSignin.setAttribute('aria-selected','false');
+            tabSignup.classList.remove('am-tab-active');tabSignup.setAttribute('aria-selected','false');
+            if(tab==='signup'){formSignup.classList.remove('am-hidden');tabSignup.classList.add('am-tab-active');tabSignup.setAttribute('aria-selected','true');}
+            else if(tab==='reset'){formReset.classList.remove('am-hidden');tabs.style.display='none';}
+            else{formSignin.classList.remove('am-hidden');tabSignin.classList.add('am-tab-active');tabSignin.setAttribute('aria-selected','true');}
+        }
+        async function handleSignIn(e){
+            e.preventDefault();if(!window.auth)return;
+            var email=document.getElementById('am-signin-email').value.trim(),pw=document.getElementById('am-signin-password').value,btn=document.getElementById('am-signin-submit');
+            if(!email||!pw){window.auth.showError('Please fill in all fields.');return;}
+            window.auth.setLoading(btn,true);
+            try{await window.auth.signIn(email,pw);hide();}catch(err){}finally{window.auth.setLoading(btn,false);}
+        }
+        async function handleSignUp(e){
+            e.preventDefault();if(!window.auth)return;
+            var name=document.getElementById('am-signup-name').value.trim(),email=document.getElementById('am-signup-email').value.trim(),pw=document.getElementById('am-signup-password').value,btn=document.getElementById('am-signup-submit');
+            if(!name||!email||!pw){window.auth.showError('Please fill in all fields.');return;}
+            if(pw.length<6){window.auth.showError('Password must be at least 6 characters.');return;}
+            window.auth.setLoading(btn,true);
+            try{
+                await window.auth.signUp(email,pw,name);window.auth.clearError();
+                var el=document.getElementById('auth-error');
+                if(el){el.style.display='block';el.style.background='rgba(46,204,113,.15)';el.style.borderColor='rgba(46,204,113,.4)';el.style.color='#2ecc71';el.textContent='Account created! Check your email to confirm, then sign in.';}
+                switchTab('signin');
+            }catch(err){}finally{window.auth.setLoading(btn,false);}
+        }
+        async function handleReset(e){
+            e.preventDefault();if(!window.auth)return;
+            var email=document.getElementById('am-reset-email').value.trim(),btn=document.getElementById('am-reset-submit');
+            if(!email){window.auth.showError('Please enter your email.');return;}
+            window.auth.setLoading(btn,true);
+            try{
+                await window.auth.resetPassword(email);window.auth.clearError();
+                var el=document.getElementById('auth-error');
+                if(el){el.style.display='block';el.style.background='rgba(46,204,113,.15)';el.style.borderColor='rgba(46,204,113,.4)';el.style.color='#2ecc71';el.textContent='Reset link sent! Check your inbox.';}
+            }catch(err){}finally{window.auth.setLoading(btn,false);}
+        }
+        closeBtn.addEventListener('click',hide);
+        overlay.addEventListener('click',function(e){if(e.target===overlay)hide();});
+        document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!overlay.classList.contains('am-hidden'))hide();});
+        tabSignin.addEventListener('click',function(){switchTab('signin');});
+        tabSignup.addEventListener('click',function(){switchTab('signup');});
+        forgotBtn.addEventListener('click',function(){switchTab('reset');});
+        backBtn.addEventListener('click',function(){switchTab('signin');});
+        formSignin.addEventListener('submit',handleSignIn);
+        formSignup.addEventListener('submit',handleSignUp);
+        formReset.addEventListener('submit',handleReset);
+
+        // Auto-hide when auth succeeds (OAuth redirect or session restore)
+        window.addEventListener('auth-state-changed',function(e){
+            if(e.detail&&e.detail.user){
+                hide();
+                // Update sidebar user info
+                var info=document.getElementById('sidebar-user-info');
+                if(info){info.textContent=e.detail.user.email||e.detail.user.user_metadata&&e.detail.user.user_metadata.display_name||'Learner';}
+            }
+        });
+
+// window.AuthModal={show:show,hide:hide}; removed to not overwrite above
+    })();
+    </script>
+
+    <!-- Libs -->
     <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@2.2/dist/hanzi-writer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="https://www.paypal.com/sdk/js?client-id=sb&currency=USD"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=ASZJb0IXSS2NCfyxSVLS_0XkSgwM7LbrIm4zDU7OZMBtD_IDpoqvzjIdlM1cQBdHdUbdp2z2L6B0y5tW&currency=USD"></script>
+
+    <!-- App (depends on everything above) -->
     <script src="app.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                console.log('[SW] Registered:', reg.scope);
+            }).catch(function(err) {
+                console.warn('[SW] Registration failed:', err);
+            });
+        });
+    }
+    </script>
 </body>
 
 </html>

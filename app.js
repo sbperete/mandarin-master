@@ -1,3 +1,6 @@
+// --- CONSTANTS ---
+const FREE_WORD_LIMIT = 25; // Free users can learn 25 words before paywall
+
 // --- STATE MANAGEMENT ---
 const state = {
     currentLevel: 1,
@@ -5,19 +8,29 @@ const state = {
     currentSection: 'vocab',
     progress: { vocabCompleted: false, phrasesCompleted: false, storyCompleted: false },
     writer: null,
+    // Learning flow steps: listen → speak → write → next
+    listenPassed: false,
     pronunciationPassed: false,
     writingPassed: false,
-    user: JSON.parse(localStorage.getItem('vocab_user')) || null, // Check persistence
-    isLoggedIn: false, // Update in init
+    currentStep: 1, // 1=listen, 2=speak, 3=write, 4=next
+    canvasMode: 'trace', // 'trace' or 'free'
+    micPermissionGranted: false,
+    micPermissionAsked: false,
+    user: JSON.parse(localStorage.getItem('vocab_user')) || null,
+    isLoggedIn: false,
     isPremium: false,
-    score: 1250 // Initial score for demo
+    score: parseInt(localStorage.getItem('mm_score')) || 1250,
+    failedStrokes: []
 };
 
 // Data References
 const levelData = {
     1: typeof hsk1Data !== 'undefined' ? hsk1Data : null,
     2: typeof hsk2Data !== 'undefined' ? hsk2Data : null,
-    3: null, 4: null, 5: null, 6: null
+    3: typeof hsk3Data !== 'undefined' ? hsk3Data : null,
+    4: typeof hsk4Data !== 'undefined' ? hsk4Data : null,
+    5: typeof hsk5Data !== 'undefined' ? hsk5Data : null,
+    6: typeof hsk6Data !== 'undefined' ? hsk6Data : null
 };
 
 // --- DOM ELEMENTS ---
@@ -34,12 +47,27 @@ const elements = {
     audioBtn: document.getElementById('audio-btn'),
     characterTarget: document.getElementById('character-target'),
     feedback: document.getElementById('feedback'),
+    listenBtn: document.getElementById('listen-btn'),
     pronounceBtn: document.getElementById('pronounce-btn'),
     drawBtn: document.getElementById('draw-btn'),
     nextBtn: document.getElementById('next-btn'),
     progressText: document.getElementById('progress-text'),
     progressSegment: document.getElementById('progress-segment'),
     shareBtn: document.getElementById('share-btn'),
+
+    // Step indicators
+    stepListen: document.getElementById('step-listen'),
+    stepSpeak: document.getElementById('step-speak'),
+    stepWrite: document.getElementById('step-write'),
+    stepNext: document.getElementById('step-next'),
+
+    // Canvas mode
+    canvasModeToggle: document.getElementById('canvas-mode-toggle'),
+    modeTraceBtn: document.getElementById('mode-trace-btn'),
+    modeFreeBtn: document.getElementById('mode-free-btn'),
+    freeDrawWrapper: document.getElementById('free-draw-wrapper'),
+    freeDrawCanvas: document.getElementById('free-draw-canvas'),
+    clearCanvasBtn: document.getElementById('clear-canvas-btn'),
 
     // Other Sections
     phrasesList: document.getElementById('phrases-list'),
@@ -49,10 +77,13 @@ const elements = {
     togglePinyinBtn: document.getElementById('toggle-pinyin-btn'),
     leaderboardList: document.getElementById('leaderboard-list'),
 
+    // Mobile
+    mobileLevelSelect: document.getElementById('mobile-level-select'),
+
     // Modals
-    loginModal: document.getElementById('login-modal'),
     upgradeModal: document.getElementById('upgrade-modal'),
-    authBtns: document.querySelectorAll('.auth-btn'),
+    upgradeTitle: document.getElementById('upgrade-title'),
+    upgradeSubtitle: document.getElementById('upgrade-subtitle'),
     upgradeBtn: document.getElementById('upgrade-btn'),
     closeModals: document.querySelectorAll('.close-modal')
 };
@@ -60,14 +91,51 @@ const elements = {
 // --- SUBSCRIPTION & PAYPAL ---
 
 function checkPremiumStatus() {
-    if (localStorage.getItem('isPremium') === 'true') {
+    var localPremium = localStorage.getItem('isPremium') === 'true';
+
+    // Check localStorage first (fast path — existing users keep working)
+    if (localPremium) {
         state.isPremium = true;
-        // Unlock all levels in UI
-        Array.from(elements.levelSelect.options).forEach(opt => {
-            opt.disabled = false;
-            opt.textContent = opt.textContent.replace('🔒', '');
-        });
+        unlockAllLevels();
     }
+
+    // Sync with Supabase: check server, and back-fill if needed
+    if (window.supabaseClient && state.isLoggedIn) {
+        window.supabaseClient.auth.getUser().then(function(result) {
+            if (result.data && result.data.user && result.data.user.user_metadata) {
+                var meta = result.data.user.user_metadata;
+
+                if (meta.is_premium === true) {
+                    // Server says premium — trust it, update local
+                    state.isPremium = true;
+                    localStorage.setItem('isPremium', 'true');
+                    unlockAllLevels();
+                } else if (localPremium && !meta.is_premium) {
+                    // LOCAL says premium but server doesn't know yet
+                    // This covers EXISTING users who paid before the Supabase sync was added
+                    // Back-fill their Supabase profile so it persists across devices
+                    console.log('[Premium] Syncing existing premium status to Supabase...');
+                    window.supabaseClient.auth.updateUser({
+                        data: { is_premium: true, premium_since: new Date().toISOString(), source: 'legacy_sync' }
+                    }).then(function() {
+                        console.log('[Premium] Legacy premium synced to Supabase');
+                    }).catch(function(err) {
+                        console.warn('[Premium] Sync failed:', err);
+                    });
+                }
+            }
+        }).catch(function() { /* silent — localStorage fallback still works */ });
+    }
+}
+
+function unlockAllLevels() {
+    [elements.levelSelect, elements.mobileLevelSelect].forEach(sel => {
+        if (!sel) return;
+        Array.from(sel.options).forEach(opt => {
+            opt.disabled = false;
+            opt.textContent = opt.textContent.replace('🔒', '').trim();
+        });
+    });
 }
 
 let paypalButtonRendered = false;
@@ -87,30 +155,44 @@ function renderPayPalButton() {
             shape: 'rect',
             color: 'gold',
             layout: 'vertical',
-            label: 'subscribe'
+            label: 'pay'
         },
         createOrder: function (data, actions) {
             return actions.order.create({
                 purchase_units: [{
-                    description: "Mandarin Master Premium",
+                    description: "Mandarin Master — Lifetime Premium Access",
                     amount: {
-                        value: '1.00' // $1.00 USD
+                        currency_code: 'USD',
+                        value: '9.99'
                     }
                 }]
             });
         },
         onApprove: function (data, actions) {
             return actions.order.capture().then(function (details) {
-                alert('Transaction completed by ' + details.payer.name.given_name + '! You are now Premium.');
+                // Save premium status locally and to Supabase user metadata
                 state.isPremium = true;
                 localStorage.setItem('isPremium', 'true');
+
+                // Persist to Supabase so premium survives across devices
+                if (window.supabaseClient && state.user) {
+                    window.supabaseClient.auth.updateUser({
+                        data: { is_premium: true, premium_since: new Date().toISOString(), paypal_order_id: data.orderID }
+                    }).then(function() {
+                        console.log('[Premium] Saved to Supabase user metadata');
+                    }).catch(function(err) {
+                        console.warn('[Premium] Failed to save to Supabase:', err);
+                    });
+                }
+
                 checkPremiumStatus();
                 elements.upgradeModal.classList.add('hidden');
+                alert('Welcome to Premium, ' + details.payer.name.given_name + '! All HSK levels are now unlocked.');
             });
         },
         onError: function (err) {
             console.error('PayPal Error:', err);
-            alert("Payment failed. Please try again.");
+            alert("Payment failed. Please try again or contact support.");
         }
     }).render('#paypal-button-container');
 
@@ -118,8 +200,76 @@ function renderPayPalButton() {
 }
 
 
+// --- QUICK GUIDE ---
+const Guide = {
+    step: 0,
+    active: localStorage.getItem('guide_skipped') !== 'true',
+    el: null,
+    steps: [
+        { target: 'listen-btn', text: 'Step 1: Listen to the word', pos: 'bottom' },
+        { target: 'pronounce-btn', text: 'Step 2: Now pronounce it', pos: 'bottom' },
+        { target: 'draw-btn', text: 'Step 3: Draw the character', pos: 'bottom' },
+        { target: 'next-btn', text: 'Step 4: Move to next word', pos: 'bottom' }
+    ],
+    init() {
+        window.addEventListener('resize', this.updatePos.bind(this));
+        window.addEventListener('scroll', this.updatePos.bind(this), true);
+    },
+    showStep(stepIndex) {
+        if (!this.active) return;
+        this.step = stepIndex;
+        if (this.step >= this.steps.length) {
+            this.finish();
+            return;
+        }
+        
+        if (!this.el) {
+            this.el = document.createElement('div');
+            this.el.className = 'quick-guide-overlay';
+            document.body.appendChild(this.el);
+        }
+        
+        const current = this.steps[this.step];
+        this.el.innerHTML = `${current.text} <button onclick="Guide.skip()" class="quick-guide-skip">Skip</button>`;
+        this.el.setAttribute('data-pos', current.pos);
+        this.updatePos();
+    },
+    updatePos() {
+        if (!this.active || !this.el || this.step >= this.steps.length) return;
+        const current = this.steps[this.step];
+        const targetEl = document.getElementById(current.target);
+        if (!targetEl || targetEl.disabled || targetEl.style.display === 'none') {
+            this.el.style.display = 'none';
+            return;
+        }
+        this.el.style.display = 'block';
+        const rect = targetEl.getBoundingClientRect();
+        
+        if (current.pos === 'top') {
+            this.el.style.left = (rect.left + rect.width / 2 - this.el.offsetWidth / 2) + 'px';
+            this.el.style.top = (rect.top - this.el.offsetHeight - 15) + 'px';
+        } else {
+            this.el.style.left = (rect.left + rect.width / 2 - this.el.offsetWidth / 2) + 'px';
+            this.el.style.top = (rect.bottom + 15) + 'px';
+        }
+    },
+    skip() {
+        this.active = false;
+        if (this.el) this.el.remove();
+        localStorage.setItem('guide_skipped', 'true');
+    },
+    finish() {
+        this.active = false;
+        if (this.el) this.el.remove();
+        localStorage.setItem('guide_skipped', 'true');
+    }
+};
+window.Guide = Guide;
+
 // --- INITIALIZATION ---
 function init() {
+    loadThemePreference();
+    Guide.init();
     setupEventListeners();
     setupAuthListeners();
     checkPremiumStatus();
@@ -128,17 +278,33 @@ function init() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('mode') === 'daily') {
         state.isLoggedIn = true;
-        elements.loginModal.classList.add('hidden');
         startDailyMode();
         return;
     }
 
-    // Auth Enforcement
-    // Firebase onAuthStateChanged (in firebase-config.js) will fire and dispatch
-    // 'auth-state-changed' event. That event handler in setupAuthListeners() will
-    // either load the app or show the login modal. Show modal by default until
-    // Firebase resolves the auth state.
-    elements.loginModal.classList.remove('hidden');
+    // Restore mic permission state from session
+    if (sessionStorage.getItem('mm_mic_granted') === 'true') {
+        state.micPermissionGranted = true;
+        state.micPermissionAsked = true;
+    }
+
+    // Explicit auth gate: if no user, force auth modal + blur content
+    document.body.classList.add('auth-required');
+    if (window.auth) {
+        window.auth.getUser().then(function(user) {
+            if (!user) {
+                document.body.classList.add('auth-required');
+                if (window.AuthModal) {
+                    window.AuthModal.isClosable = false;
+                    var closeBtn = document.getElementById('am-close-btn');
+                    if (closeBtn) closeBtn.style.display = 'none';
+                    window.AuthModal.show('signin');
+                }
+            } else {
+                document.body.classList.remove('auth-required');
+            }
+        });
+    }
 }
 
 function setupEventListeners() {
@@ -152,22 +318,42 @@ function setupEventListeners() {
 
     elements.levelSelect.addEventListener('change', (e) => {
         const level = parseInt(e.target.value);
-        if (level >= 3 && !state.isPremium) {
-            // Revert selection first
+        if (level >= 2 && !state.isPremium) {
             e.target.value = state.currentLevel;
-            alert("🔒 HSK 3-6 are locked for Free users.");
-            elements.upgradeModal.classList.remove('hidden');
-            renderPayPalButton();
+            showPaywall();
             return;
         }
         loadLevel(level);
     });
 
     elements.themeToggle.addEventListener('click', toggleTheme);
+
+    // Mobile level selector
+    if (elements.mobileLevelSelect) {
+        elements.mobileLevelSelect.addEventListener('change', (e) => {
+            const level = parseInt(e.target.value);
+            if (level >= 2 && !state.isPremium) {
+                e.target.value = state.currentLevel;
+                showPaywall();
+                return;
+            }
+            elements.levelSelect.value = level;
+            loadLevel(level);
+        });
+    }
+
+    // --- Learning Flow Buttons ---
+    elements.listenBtn.addEventListener('click', handleListen);
     elements.pronounceBtn.addEventListener('click', handlePronounce);
     elements.drawBtn.addEventListener('click', handleDraw);
     elements.nextBtn.addEventListener('click', handleNextWord);
-    elements.audioBtn.addEventListener('click', () => { const word = getCurrentWord(); speak(word.chinese); });
+
+    // Audio button (quick replay, doesn't affect flow)
+    elements.audioBtn.addEventListener('click', () => {
+        const word = getCurrentWord();
+        if (word) speak(word.chinese);
+    });
+
     elements.togglePinyinBtn.addEventListener('click', () => {
         const pinyins = document.querySelectorAll('.story-line .pinyin');
         pinyins.forEach(el => el.style.display = el.style.display === 'none' ? 'block' : 'none');
@@ -176,107 +362,207 @@ function setupEventListeners() {
     if (elements.shareBtn) {
         elements.shareBtn.addEventListener('click', handleShare);
     }
+
+    // --- Canvas Mode Toggle ---
+    if (elements.modeTraceBtn) {
+        elements.modeTraceBtn.addEventListener('click', () => setCanvasMode('trace'));
+    }
+    if (elements.modeFreeBtn) {
+        elements.modeFreeBtn.addEventListener('click', () => setCanvasMode('free'));
+    }
+    if (elements.clearCanvasBtn) {
+        elements.clearCanvasBtn.addEventListener('click', clearFreeDrawCanvas);
+    }
+
+    // --- Free Draw Canvas Setup ---
+    setupFreeDrawCanvas();
+}
+
+// --- FREE DRAW CANVAS ---
+function setupFreeDrawCanvas() {
+    const canvas = elements.freeDrawCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+
+    // High-DPI support
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = 260 * dpr;
+    canvas.height = 260 * dpr;
+    canvas.style.width = '260px';
+    canvas.style.height = '260px';
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#333';
+
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches ? e.touches[0] : e;
+        return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    }
+
+    canvas.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); });
+    canvas.addEventListener('mousemove', (e) => { if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+    canvas.addEventListener('mouseup', () => { drawing = false; });
+    canvas.addEventListener('mouseleave', () => { drawing = false; });
+
+    // Touch support
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }, { passive: false });
+    canvas.addEventListener('touchend', () => { drawing = false; });
+}
+
+function clearFreeDrawCanvas() {
+    const canvas = elements.freeDrawCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, 260 * dpr, 260 * dpr);
+}
+
+function setCanvasMode(mode) {
+    state.canvasMode = mode;
+    if (elements.modeTraceBtn) elements.modeTraceBtn.classList.toggle('active', mode === 'trace');
+    if (elements.modeFreeBtn) elements.modeFreeBtn.classList.toggle('active', mode === 'free');
+
+    if (mode === 'free') {
+        if (elements.freeDrawWrapper) elements.freeDrawWrapper.style.display = '';
+        // Update free draw stroke color based on theme
+        const canvas = elements.freeDrawCanvas;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.strokeStyle = document.body.classList.contains('light-mode') ? '#333' : '#ecf0f1';
+        }
+    } else {
+        if (elements.freeDrawWrapper) elements.freeDrawWrapper.style.display = 'none';
+    }
+}
+
+// --- MIC PERMISSION (one-time on login) ---
+async function requestMicPermission() {
+    if (state.micPermissionGranted || state.micPermissionAsked) return;
+    state.micPermissionAsked = true;
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Got permission — stop the stream immediately, we just needed the grant
+        stream.getTracks().forEach(track => track.stop());
+        state.micPermissionGranted = true;
+        sessionStorage.setItem('mm_mic_granted', 'true');
+        console.log('[Mandarin Master] Mic permission granted');
+    } catch (err) {
+        console.warn('[Mandarin Master] Mic permission denied or unavailable:', err.message);
+        state.micPermissionGranted = false;
+    }
+}
+
+// --- LISTEN STEP ---
+function handleListen() {
+    const word = getCurrentWord();
+    if (!word) return;
+
+    elements.listenBtn.disabled = true;
+    elements.listenBtn.textContent = '🔊 Playing...';
+    elements.feedback.textContent = 'Listen carefully to the pronunciation...';
+    elements.feedback.className = 'feedback';
+
+    // Play TTS
+    const utterance = new SpeechSynthesisUtterance(word.chinese);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.8;
+
+    utterance.onend = () => {
+        state.listenPassed = true;
+        state.currentStep = 2;
+        elements.listenBtn.textContent = '✅ Listened';
+        elements.feedback.textContent = '✅ Good! Now try to pronounce it yourself.';
+        elements.feedback.className = 'feedback success';
+        updateControlStates();
+        updateStepIndicators();
+        if (Guide.step === 0 && Guide.active) setTimeout(() => Guide.showStep(1), 500);
+    };
+
+    utterance.onerror = () => {
+        // Fallback: mark as passed even if TTS fails
+        state.listenPassed = true;
+        state.currentStep = 2;
+        elements.listenBtn.textContent = '✅ Listened';
+        updateControlStates();
+        updateStepIndicators();
+    };
+
+    speechSynthesis.speak(utterance);
 }
 
 function setupAuthListeners() {
+    // Close upgrade modal
     if (elements.closeModals) {
         elements.closeModals.forEach(btn => {
             btn.addEventListener('click', () => {
-                elements.loginModal.classList.add('hidden');
                 elements.upgradeModal.classList.add('hidden');
             });
         });
     }
 
-    // --- Real Firebase OAuth Listeners ---
-    const googleBtn = document.querySelector('.auth-btn.google');
-    const facebookBtn = document.querySelector('.auth-btn.facebook');
-    const appleBtn = document.querySelector('.auth-btn.apple');
-    const emailBtn = document.querySelector('.auth-btn.email');
-
-    if (googleBtn) {
-        googleBtn.addEventListener('click', () => {
-            handleOAuthSignIn(signInWithGoogle, 'Google');
-        });
-    }
-
-    if (facebookBtn) {
-        facebookBtn.addEventListener('click', () => {
-            handleOAuthSignIn(signInWithFacebook, 'Facebook');
-        });
-    }
-
-    if (appleBtn) {
-        appleBtn.addEventListener('click', () => {
-            handleOAuthSignIn(signInWithApple, 'Apple');
-        });
-    }
-
-    if (emailBtn) {
-        emailBtn.addEventListener('click', () => {
-            showEmailAuthForm();
-        });
-    }
-
-    // Listen for Firebase auth state changes
-    window.addEventListener('auth-state-changed', (e) => {
-        const user = e.detail.user;
-        if (user) {
-            state.user = user;
-            state.isLoggedIn = true;
-            elements.loginModal.classList.add('hidden');
-            checkAuthUI();
-            loadLevel(1);
-        } else {
-            state.user = null;
-            state.isLoggedIn = false;
-            elements.loginModal.classList.remove('hidden');
-        }
-    });
-
+    // Upgrade button
     if (elements.upgradeBtn) {
         elements.upgradeBtn.addEventListener('click', () => {
             elements.upgradeModal.classList.remove('hidden');
             renderPayPalButton();
         });
     }
-}
 
-function handleOAuthSignIn(signInFn, providerName) {
-    signInFn().catch(function (error) {
-        if (error.code === 'auth/popup-closed-by-user') return;
-        if (error.code === 'auth/cancelled-popup-request') return;
-        console.error(providerName + ' sign-in error:', error);
-        alert('Sign-in failed: ' + error.message);
-    });
-}
+    // Listen for Supabase auth state changes (from js/auth.js)
+    window.addEventListener('auth-state-changed', (e) => {
+        const user = e.detail ? e.detail.user : null;
+        if (user) {
+            state.user = user;
+            state.isLoggedIn = true;
+            document.body.classList.remove('auth-required');
+            if (window.AuthModal && window.AuthModal.isClosable === false) {
+                window.AuthModal.isClosable = true;
+                const closeBtn = document.getElementById('am-close-btn');
+                if (closeBtn) closeBtn.style.display = '';
+                window.AuthModal.hide();
+            }
+            loadLevel(state.currentLevel || 1);
 
-function showEmailAuthForm() {
-    const email = prompt('Enter your email:');
-    if (!email) return;
-    const password = prompt('Enter your password (min 6 characters):');
-    if (!password) return;
-
-    // Try sign-in first, fall back to sign-up
-    signInWithEmail(email, password).catch(function (error) {
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-            if (confirm('No account found. Create a new account?')) {
-                signUpWithEmail(email, password).catch(function (signUpError) {
-                    alert('Sign-up failed: ' + signUpError.message);
-                });
+            // Request mic permission once after login (delayed to avoid overwhelming)
+            if (!state.micPermissionAsked) {
+                setTimeout(() => requestMicPermission(), 2000);
             }
         } else {
-            alert('Sign-in failed: ' + error.message);
+            state.user = null;
+            state.isLoggedIn = false;
+            document.body.classList.add('auth-required');
+            if (window.AuthModal) {
+                window.AuthModal.isClosable = false;
+                const closeBtn = document.getElementById('am-close-btn');
+                if (closeBtn) closeBtn.style.display = 'none';
+                window.AuthModal.show('signin');
+            }
         }
     });
 }
 
-function checkAuthUI() { }
-
 // --- CORE LOGIC ---
 
+function showPaywall() {
+    // Update upgrade modal messaging
+    if (elements.upgradeTitle) elements.upgradeTitle.textContent = 'Unlock Full Access 👑';
+    if (elements.upgradeSubtitle) {
+        const data = getCurrentData();
+        const total = data ? data.vocab.length : 150;
+        elements.upgradeSubtitle.textContent = "You've mastered " + FREE_WORD_LIMIT + " words! Upgrade to unlock all " + total + " HSK" + state.currentLevel + " words plus HSK 2-6.";
+    }
+    elements.upgradeModal.classList.remove('hidden');
+    renderPayPalButton();
+}
+
 function loadLevel(level) {
-    if (level > 2 && !state.isPremium) { elements.upgradeModal.classList.remove('hidden'); renderPayPalButton(); return; }
+    if (level > 1 && !state.isPremium) { showPaywall(); return; }
     state.currentLevel = level;
     state.currentWordIndex = 0;
     state.progress = { vocabCompleted: false, phrasesCompleted: false, storyCompleted: false };
@@ -323,7 +609,7 @@ function loadWord(index) {
 
     elements.pinyinDisplay.textContent = word.pinyin;
     elements.englishDisplay.textContent = word.english;
-    elements.feedback.textContent = "Start by pronouncing the word.";
+    elements.feedback.textContent = "Press Listen to hear the word.";
     elements.feedback.className = 'feedback';
 
     const visualContainer = document.getElementById('visual-aid-container');
@@ -333,31 +619,79 @@ function loadWord(index) {
         visualContainer.classList.remove('hidden');
     } else if (visualContainer) { visualContainer.classList.add('hidden'); }
 
+    // Reset all step states
+    state.listenPassed = false;
     state.pronunciationPassed = false;
     state.writingPassed = false;
-    state.failedStrokes = []; // Reset for new character
-    updateControlStates();
+    state.currentStep = 1;
+    state.failedStrokes = [];
 
-    const showOutline = state.currentLevel <= 2;
+    // Reset button labels
+    if (elements.listenBtn) elements.listenBtn.textContent = '🔊 Listen';
+    if (elements.pronounceBtn) elements.pronounceBtn.textContent = '🎙️ Speak';
+
+    updateControlStates();
+    updateStepIndicators();
+
+    // Reset canvas mode
+    setCanvasMode('trace');
+    clearFreeDrawCanvas();
+
     elements.characterTarget.innerHTML = '';
 
-    // Create Writer with RED outline (hint)
+    // Determine stroke/outline colors based on theme
+    const isLight = document.body.classList.contains('light-mode');
+    const strokeColor = isLight ? '#333' : '#ccc';
+    const drawingColor = isLight ? '#333' : '#ecf0f1';
+
+    // Create HanziWriter with guided trace
     state.writer = HanziWriter.create('character-target', word.chinese, {
         width: 260, height: 260, padding: 5,
-        showOutline: true, // Always show outline as hint
-        outlineColor: '#ff0000', // Red Hint
-        strokeColor: '#333', // Default neutral until drawn
-        drawingColor: '#333',
+        showOutline: true,
+        outlineColor: '#ff4444',
+        strokeColor: strokeColor,
+        drawingColor: drawingColor,
         delayBetweenStrokes: 0,
         radicalsColor: '#337ab7'
     });
     updateProgress();
+    if (index === 0 && Guide.active) { setTimeout(() => Guide.showStep(0), 1000); }
 }
 
 function updateControlStates() {
-    elements.pronounceBtn.disabled = state.pronunciationPassed;
+    // Sequential: Listen → Speak → Write → Next
+    elements.listenBtn.disabled = state.listenPassed;
+    elements.pronounceBtn.disabled = !state.listenPassed || state.pronunciationPassed;
     elements.drawBtn.disabled = !state.pronunciationPassed || state.writingPassed;
     elements.nextBtn.disabled = !state.writingPassed;
+
+    // Show canvas mode toggle only when write step is active
+    if (elements.canvasModeToggle) {
+        elements.canvasModeToggle.style.display = state.pronunciationPassed && !state.writingPassed ? '' : 'none';
+    }
+}
+
+function updateStepIndicators() {
+    const steps = [
+        { el: elements.stepListen, done: state.listenPassed, step: 1 },
+        { el: elements.stepSpeak, done: state.pronunciationPassed, step: 2 },
+        { el: elements.stepWrite, done: state.writingPassed, step: 3 },
+        { el: elements.stepNext, done: false, step: 4 }
+    ];
+    steps.forEach(s => {
+        if (!s.el) return;
+        s.el.classList.remove('active', 'completed');
+        const numEl = s.el.querySelector('.step-number');
+        if (s.done) {
+            s.el.classList.add('completed');
+            if (numEl) numEl.textContent = '✓';
+        } else {
+            if (numEl) numEl.textContent = s.step;
+            if (s.step === state.currentStep) {
+                s.el.classList.add('active');
+            }
+        }
+    });
 }
 function updateProgress() {
     const total = getCurrentData().vocab.length;
@@ -368,36 +702,96 @@ function updateProgress() {
 }
 
 function handlePronounce() {
-    if (!('webkitSpeechRecognition' in window)) {
-        alert("Speech Recognition unavailable. Auto-pass.");
-        state.pronunciationPassed = true; updateControlStates(); return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        // No speech recognition available — auto-pass
+        elements.feedback.textContent = "⚠️ Speech recognition not available. Auto-passed.";
+        elements.feedback.className = 'feedback warning';
+        state.pronunciationPassed = true;
+        state.currentStep = 3;
+        elements.pronounceBtn.textContent = '✅ Spoken';
+        updateControlStates();
+        updateStepIndicators();
+        return;
     }
-    const recognition = new webkitSpeechRecognition();
-    recognition.lang = 'zh-CN'; recognition.start();
-    elements.pronounceBtn.textContent = 'Listening...';
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 3;
+
+    elements.pronounceBtn.textContent = '🎙️ Listening...';
+    elements.pronounceBtn.disabled = true;
+    elements.feedback.textContent = 'Listening... speak now!';
+    elements.feedback.className = 'feedback';
+
+    recognition.start();
 
     recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        const target = getCurrentWord().chinese;
-        if (transcript.includes(target) || transcript === target) {
-            elements.feedback.textContent = "✅ Correct! Now draw it.";
+        const word = getCurrentWord();
+        if (!word) return;
+        const target = word.chinese;
+
+        // Check all alternatives for a match
+        let matched = false;
+        for (let i = 0; i < event.results[0].length; i++) {
+            const transcript = event.results[0][i].transcript.trim();
+            if (transcript.includes(target) || target.includes(transcript) || transcript === target) {
+                matched = true;
+                break;
+            }
+        }
+
+        if (matched) {
+            elements.feedback.textContent = "✅ Great pronunciation! Now write the character.";
             elements.feedback.className = 'feedback success';
             state.pronunciationPassed = true;
+            state.currentStep = 3;
+            elements.pronounceBtn.textContent = '✅ Spoken';
+            if (Guide.step === 1 && Guide.active) setTimeout(() => Guide.showStep(2), 500);
         } else {
-            elements.feedback.textContent = `❌ Heard "${transcript}". Try again.`;
+            const heard = event.results[0][0].transcript;
+            elements.feedback.textContent = `❌ Heard "${heard}". Try again!`;
             elements.feedback.className = 'feedback error';
+            elements.pronounceBtn.disabled = false;
+            elements.pronounceBtn.textContent = '🎙️ Retry';
         }
-        elements.pronounceBtn.textContent = '🎙️ Pronounce';
         updateControlStates();
+        updateStepIndicators();
     };
-    recognition.onerror = () => { alert("No Mic. Auto-pass."); state.pronunciationPassed = true; elements.pronounceBtn.textContent = '🎙️ Pronounce'; updateControlStates(); };
+
+    recognition.onerror = (e) => {
+        if (e.error === 'not-allowed') {
+            elements.feedback.textContent = "⚠️ Mic access denied. Auto-passed.";
+            elements.feedback.className = 'feedback warning';
+            state.pronunciationPassed = true;
+            state.currentStep = 3;
+            elements.pronounceBtn.textContent = '✅ Spoken';
+        } else {
+            elements.feedback.textContent = "⚠️ Could not hear you. Try again.";
+            elements.feedback.className = 'feedback warning';
+            elements.pronounceBtn.disabled = false;
+            elements.pronounceBtn.textContent = '🎙️ Retry';
+        }
+        updateControlStates();
+        updateStepIndicators();
+    };
+
+    recognition.onnomatch = () => {
+        elements.feedback.textContent = "❌ Didn't catch that. Try again!";
+        elements.feedback.className = 'feedback error';
+        elements.pronounceBtn.disabled = false;
+        elements.pronounceBtn.textContent = '🎙️ Retry';
+    };
 }
 
 function handleDraw() {
-    state.writer.showOutline(); // Ensure red outline is visible
+    // Show canvas mode toggle when entering write step
+    if (elements.canvasModeToggle) elements.canvasModeToggle.style.display = '';
+
+    state.writer.showOutline();
     state.writer.quiz({
         onMistake: function (strokeData) {
-            // Log the failure for this stroke index
             if (!state.failedStrokes.includes(strokeData.strokeNum)) {
                 state.failedStrokes.push(strokeData.strokeNum);
             }
@@ -405,65 +799,44 @@ function handleDraw() {
             elements.feedback.className = 'feedback error';
         },
         onCorrectStroke: function (strokeData) {
-            // Determine color: Orange if failed before, Green if first try
             const isSecondAttempt = state.failedStrokes.includes(strokeData.strokeNum);
-            const color = isSecondAttempt ? '#FFA500' : '#2ecc71'; // Orange : Green
-
-            // Hack to color the *just drawn* stroke (matches the implementation details of HanziWriter 2.x)
-            // We find the SVG path that corresponds to this stroke and fill it.
-            // HanziWriter acts on the DOM, so we can select the last drawn path.
-            // Note: This relies on the internal order. A safer way is using specific API if available, 
-            // but for now we attempt to select by index or standard DOM manipulation.
-
-            // Implementation specific: HanziWriter usually appends a group/path for each stroke.
-            const svg = document.querySelector('#character-target svg');
-            if (svg) {
-                // The strokes are usually paths. 
-                // We'll target the path that matches the strokeNum. 
-                // HanziWriter usually renders strokes in order.
-                // However, the *drawn* stroke is separate from the *template* stroke.
-                // We will try to update the 'strokeColor' for the NEXT stroke if possible, 
-                // but for the CURRENT one we might need to rely on the library's default.
-
-                // Better approach supported by HanziWriter:
-                // We can't easily change the color of an *already drawn* stroke via public API 
-                // without internal access or re-rendering.
-                // BUT, we can try to force the color by re-rendering the specific stroke 
-                // manually or using the internal SVG selection.
-
-                // Let's try finding the last drawn path with class or attribute?
-                // Actually, let's just accept the default black/white for now BUT 
-                // change the feedback text color heavily.
-                // Wait, user requirement is "turn green else bring orange".
-                // I will try to use `cancelQuiz` and `updateColor`? No that resets.
-            }
-
             elements.feedback.textContent = isSecondAttempt ? "⚠️ Good correction." : "✅ Perfect stroke!";
             elements.feedback.className = isSecondAttempt ? 'feedback warning' : 'feedback success';
         },
         onComplete: () => {
-            elements.feedback.textContent = "✅ Written correctly! Next word.";
+            elements.feedback.textContent = "✅ Character complete! Press Next.";
             elements.feedback.className = 'feedback success';
             state.writingPassed = true;
+            state.currentStep = 4;
             state.score += 50;
+            localStorage.setItem('mm_score', state.score);
             updateControlStates();
+            updateStepIndicators();
             renderLeaderboard();
-
-            // Force final color update to Green for satisfaction? 
-            // state.writer.updateColor('green'); // This would color the whole char green
+            if (Guide.step === 2 && Guide.active) setTimeout(() => Guide.showStep(3), 500);
         }
     });
 }
 
 function handleNextWord() {
+    if (Guide.step === 3 && Guide.active) Guide.finish();
     const total = getCurrentData().vocab.length;
     if (state.currentWordIndex < total - 1) {
         state.currentWordIndex++;
+
+        // PAYWALL: After reaching free limit, require premium
+        if (state.currentWordIndex >= FREE_WORD_LIMIT && !state.isPremium) {
+            showPaywall();
+            return;
+        }
+
         loadWord(state.currentWordIndex);
     } else {
-        alert("🎉 Level Vocabulary Completed! Phrases Unlocked.");
+        elements.feedback.textContent = "🎉 Level Vocabulary Completed! Phrases Unlocked.";
+        elements.feedback.className = 'feedback success';
         state.progress.vocabCompleted = true;
         state.score += 500;
+        localStorage.setItem('mm_score', state.score);
         unlockSection('phrases');
         switchSection('phrases');
         renderLeaderboard();
@@ -567,8 +940,30 @@ function renderLeaderboard() {
     `).join('');
 }
 
-function speak(text) { const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; speechSynthesis.speak(u); }
-function toggleTheme() { document.body.classList.toggle('light-mode'); if (state.writer) loadWord(state.currentWordIndex); }
+function speak(text) { const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 0.85; speechSynthesis.speak(u); }
+
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light-mode');
+    document.body.classList.toggle('dark-mode', !isLight);
+    localStorage.setItem('mm_theme', isLight ? 'light' : 'dark');
+    const btn = elements.themeToggle;
+    if (btn) btn.textContent = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
+    if (state.writer) loadWord(state.currentWordIndex);
+}
+
+function loadThemePreference() {
+    const saved = localStorage.getItem('mm_theme') || 'dark';
+    if (saved === 'light') {
+        document.body.classList.add('light-mode');
+        document.body.classList.remove('dark-mode');
+        if (elements.themeToggle) elements.themeToggle.textContent = '🌙 Dark Mode';
+    } else {
+        document.body.classList.add('dark-mode');
+        document.body.classList.remove('light-mode');
+        if (elements.themeToggle) elements.themeToggle.textContent = '☀️ Light Mode';
+    }
+}
+
 window.speak = speak;
 
 // --- DAILY CHALLENGE MODE ---
@@ -583,7 +978,6 @@ async function startDailyMode() {
     const story = data.story ? data.story.content.slice(0, 1) : [];
 
     elements.vocabSection.classList.add('active');
-    elements.loginModal.classList.add('hidden');
 
     // Auto-Play Words
     for (let i = 0; i < words.length; i++) {
