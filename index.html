@@ -27,6 +27,8 @@
             <div class="logo-area">
                 <h1>Mandarin<br>Master</h1>
             </div>
+            <button id="mobile-settings-btn" class="mobile-settings-btn" aria-label="Settings">⚙</button>
+            <div id="mobile-settings-panel" class="mobile-settings-panel"></div>
 
             <div class="level-selector">
                 <label for="level-select">Current Level</label>
@@ -99,6 +101,7 @@
                             <div id="progress-segment" class="progress-segment"></div>
                         </div>
                     </div>
+                    <button id="review-btn" class="review-toggle-btn" style="display:none">🔄 Review</button>
                 </header>
 
                 <div class="card learning-card">
@@ -148,6 +151,15 @@
                             <span class="step-number">4</span>
                             <span class="step-label">Next</span>
                         </div>
+                    </div>
+
+                    <!-- Review Navigation Bar -->
+                    <div id="review-bar" class="review-bar" style="display:none">
+                        <button id="review-prev" class="review-nav-btn" title="Previous word">&larr;</button>
+                        <input type="range" id="review-slider" class="review-slider" min="0" max="0" value="0">
+                        <span id="review-position" class="review-position">1/0</span>
+                        <button id="review-next" class="review-nav-btn" title="Next word">&rarr;</button>
+                        <button id="review-exit" class="review-exit-btn" title="Exit review">Exit</button>
                     </div>
 
                     <div class="controls">

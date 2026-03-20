@@ -20,7 +20,9 @@ const state = {
     isLoggedIn: false,
     isPremium: false,
     score: parseInt(localStorage.getItem('mm_score')) || 1250,
-    failedStrokes: []
+    failedStrokes: [],
+    reviewMode: false,
+    reviewIndex: 0
 };
 
 // Data References
@@ -85,7 +87,16 @@ const elements = {
     upgradeTitle: document.getElementById('upgrade-title'),
     upgradeSubtitle: document.getElementById('upgrade-subtitle'),
     upgradeBtn: document.getElementById('upgrade-btn'),
-    closeModals: document.querySelectorAll('.close-modal')
+    closeModals: document.querySelectorAll('.close-modal'),
+
+    // Review mode
+    reviewBtn: document.getElementById('review-btn'),
+    reviewBar: document.getElementById('review-bar'),
+    reviewSlider: document.getElementById('review-slider'),
+    reviewPosition: document.getElementById('review-position'),
+    reviewPrev: document.getElementById('review-prev'),
+    reviewNext: document.getElementById('review-next'),
+    reviewExit: document.getElementById('review-exit')
 };
 
 // --- SUBSCRIPTION & PAYPAL ---
@@ -126,6 +137,116 @@ function checkPremiumStatus() {
             }
         }).catch(function() { /* silent — localStorage fallback still works */ });
     }
+}
+
+// --- PROGRESS PERSISTENCE ---
+
+function saveProgress() {
+    // Save to localStorage (instant, offline-friendly)
+    localStorage.setItem('mm_currentLevel', state.currentLevel);
+    localStorage.setItem('mm_currentWordIndex', state.currentWordIndex);
+    localStorage.setItem('mm_progress', JSON.stringify(state.progress));
+    localStorage.setItem('mm_score', state.score);
+
+    // Async sync to Supabase user_metadata (cross-device persistence)
+    if (window.supabaseClient && state.isLoggedIn) {
+        window.supabaseClient.auth.updateUser({
+            data: {
+                currentLevel: state.currentLevel,
+                currentWordIndex: state.currentWordIndex,
+                progress: state.progress,
+                score: state.score,
+                progress_updated_at: new Date().toISOString()
+            }
+        }).then(function() {
+            console.log('[Progress] Synced to Supabase');
+        }).catch(function(err) {
+            console.warn('[Progress] Supabase sync failed:', err);
+        });
+    }
+}
+
+function restoreProgressFromLocal() {
+    var savedLevel = parseInt(localStorage.getItem('mm_currentLevel'));
+    var savedIndex = parseInt(localStorage.getItem('mm_currentWordIndex'));
+    var savedProgress = localStorage.getItem('mm_progress');
+    var savedScore = parseInt(localStorage.getItem('mm_score'));
+
+    if (!isNaN(savedLevel) && savedLevel >= 1 && savedLevel <= 6) {
+        state.currentLevel = savedLevel;
+    }
+    if (!isNaN(savedIndex) && savedIndex >= 0) {
+        state.currentWordIndex = savedIndex;
+    }
+    if (savedProgress) {
+        try {
+            var parsed = JSON.parse(savedProgress);
+            state.progress = {
+                vocabCompleted: !!parsed.vocabCompleted,
+                phrasesCompleted: !!parsed.phrasesCompleted,
+                storyCompleted: !!parsed.storyCompleted
+            };
+        } catch (e) { /* ignore corrupt data */ }
+    }
+    if (!isNaN(savedScore)) {
+        state.score = savedScore;
+    }
+}
+
+function restoreProgressFromSupabase() {
+    if (!window.supabaseClient || !state.isLoggedIn) return;
+
+    window.supabaseClient.auth.getUser().then(function(result) {
+        if (!result.data || !result.data.user || !result.data.user.user_metadata) return;
+        var meta = result.data.user.user_metadata;
+
+        // Only restore if Supabase has progress data
+        if (typeof meta.currentWordIndex === 'number') {
+            var supabaseIndex = meta.currentWordIndex || 0;
+            var supabaseLevel = meta.currentLevel || 1;
+
+            // Use Supabase data if it has more progress than local
+            if (supabaseIndex > state.currentWordIndex || supabaseLevel > state.currentLevel) {
+                state.currentLevel = supabaseLevel;
+                state.currentWordIndex = supabaseIndex;
+                if (meta.progress) {
+                    state.progress = {
+                        vocabCompleted: !!meta.progress.vocabCompleted,
+                        phrasesCompleted: !!meta.progress.phrasesCompleted,
+                        storyCompleted: !!meta.progress.storyCompleted
+                    };
+                }
+                if (typeof meta.score === 'number' && meta.score > state.score) {
+                    state.score = meta.score;
+                }
+
+                // Update localStorage with Supabase data
+                localStorage.setItem('mm_currentLevel', state.currentLevel);
+                localStorage.setItem('mm_currentWordIndex', state.currentWordIndex);
+                localStorage.setItem('mm_progress', JSON.stringify(state.progress));
+                localStorage.setItem('mm_score', state.score);
+
+                // Re-render
+                if (elements.levelSelect) elements.levelSelect.value = state.currentLevel;
+                if (elements.mobileLevelSelect) elements.mobileLevelSelect.value = state.currentLevel;
+
+                // Unlock sections based on progress
+                if (state.progress.vocabCompleted) unlockSection('phrases');
+                if (state.progress.phrasesCompleted) unlockSection('story');
+                if (state.progress.storyCompleted) unlockSection('resources');
+
+                loadWord(state.currentWordIndex);
+                updateProgress();
+                console.log('[Progress] Restored from Supabase: Level', state.currentLevel, 'Word', state.currentWordIndex);
+            }
+        } else if (state.currentWordIndex > 0) {
+            // Local has progress but Supabase doesn't — back-fill
+            console.log('[Progress] Back-filling Supabase from localStorage...');
+            saveProgress();
+        }
+    }).catch(function(err) {
+        console.warn('[Progress] Supabase restore failed:', err);
+    });
 }
 
 function unlockAllLevels() {
@@ -273,6 +394,7 @@ function init() {
     setupEventListeners();
     setupAuthListeners();
     checkPremiumStatus();
+    restoreProgressFromLocal();
 
     // Daily Mode Check
     const urlParams = new URLSearchParams(window.location.search);
@@ -376,6 +498,66 @@ function setupEventListeners() {
 
     // --- Free Draw Canvas Setup ---
     setupFreeDrawCanvas();
+
+    // --- Review Mode ---
+    if (elements.reviewBtn) {
+        elements.reviewBtn.addEventListener('click', function() {
+            if (state.reviewMode) exitReviewMode();
+            else enterReviewMode();
+        });
+    }
+    if (elements.reviewSlider) {
+        elements.reviewSlider.addEventListener('input', function(e) {
+            state.reviewIndex = parseInt(e.target.value);
+            loadReviewWord();
+        });
+    }
+    if (elements.reviewPrev) {
+        elements.reviewPrev.addEventListener('click', function() {
+            if (state.reviewIndex > 0) {
+                state.reviewIndex--;
+                loadReviewWord();
+            }
+        });
+    }
+    if (elements.reviewNext) {
+        elements.reviewNext.addEventListener('click', function() {
+            if (state.reviewIndex < state.currentWordIndex - 1) {
+                state.reviewIndex++;
+                loadReviewWord();
+            }
+        });
+    }
+    if (elements.reviewExit) {
+        elements.reviewExit.addEventListener('click', exitReviewMode);
+    }
+
+    // --- Mobile Settings Panel ---
+    var settingsBtn = document.getElementById('mobile-settings-btn');
+    var settingsPanel = document.getElementById('mobile-settings-panel');
+    if (settingsBtn && settingsPanel) {
+        // Populate panel with theme + auth controls
+        settingsPanel.innerHTML = '<button id="mobile-theme-toggle" class="theme-btn mobile-theme-btn">☀️ Light Mode</button>' +
+            '<button class="sidebar-auth-btn mobile-signout-btn" onclick="auth.signOut()">Sign Out</button>';
+
+        var mobileThemeBtn = document.getElementById('mobile-theme-toggle');
+        if (mobileThemeBtn) {
+            mobileThemeBtn.addEventListener('click', function() {
+                elements.themeToggle.click(); // delegate to main toggle
+                var isLight = document.body.classList.contains('light-mode');
+                mobileThemeBtn.textContent = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
+                settingsPanel.classList.remove('open');
+            });
+        }
+
+        settingsBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            settingsPanel.classList.toggle('open');
+        });
+        document.addEventListener('click', function() {
+            settingsPanel.classList.remove('open');
+        });
+    }
 }
 
 // --- FREE DRAW CANVAS ---
@@ -527,7 +709,9 @@ function setupAuthListeners() {
                 if (closeBtn) closeBtn.style.display = '';
                 window.AuthModal.hide();
             }
-            loadLevel(state.currentLevel || 1);
+            restoreProgressFromLocal();
+            loadLevel(state.currentLevel || 1, true);
+            restoreProgressFromSupabase();
 
             // Request mic permission once after login (delayed to avoid overwhelming)
             if (!state.micPermissionAsked) {
@@ -561,17 +745,27 @@ function showPaywall() {
     renderPayPalButton();
 }
 
-function loadLevel(level) {
+function loadLevel(level, restoreSaved) {
     if (level > 1 && !state.isPremium) { showPaywall(); return; }
     state.currentLevel = level;
-    state.currentWordIndex = 0;
-    state.progress = { vocabCompleted: false, phrasesCompleted: false, storyCompleted: false };
+
+    if (!restoreSaved) {
+        state.currentWordIndex = 0;
+        state.progress = { vocabCompleted: false, phrasesCompleted: false, storyCompleted: false };
+    }
+
     resetLocks();
+
+    // Unlock sections based on restored progress
+    if (state.progress.vocabCompleted) unlockSection('phrases');
+    if (state.progress.phrasesCompleted) unlockSection('story');
+    if (state.progress.storyCompleted) unlockSection('resources');
+
     const data = levelData[level];
     if (!data) {
         if (level > 2) { alert("Coming soon!"); return; }
     }
-    loadWord(0);
+    loadWord(state.currentWordIndex);
     renderPhrases();
     renderStory();
     renderResources();
@@ -644,9 +838,10 @@ function loadWord(index) {
     const strokeColor = isLight ? '#333' : '#ccc';
     const drawingColor = isLight ? '#333' : '#ecf0f1';
 
-    // Create HanziWriter with guided trace
+    // Create HanziWriter with guided trace (responsive size)
+    var writerSize = window.innerWidth <= 480 ? 150 : (window.innerWidth <= 768 ? 180 : 260);
     state.writer = HanziWriter.create('character-target', word.chinese, {
-        width: 260, height: 260, padding: 5,
+        width: writerSize, height: writerSize, padding: 5,
         showOutline: true,
         outlineColor: '#ff4444',
         strokeColor: strokeColor,
@@ -655,6 +850,7 @@ function loadWord(index) {
         radicalsColor: '#337ab7'
     });
     updateProgress();
+    updateReviewButtonVisibility();
     if (index === 0 && Guide.active) { setTimeout(() => Guide.showStep(0), 1000); }
 }
 
@@ -804,12 +1000,17 @@ function handleDraw() {
             elements.feedback.className = isSecondAttempt ? 'feedback warning' : 'feedback success';
         },
         onComplete: () => {
-            elements.feedback.textContent = "✅ Character complete! Press Next.";
-            elements.feedback.className = 'feedback success';
             state.writingPassed = true;
             state.currentStep = 4;
-            state.score += 50;
-            localStorage.setItem('mm_score', state.score);
+            if (!state.reviewMode) {
+                elements.feedback.textContent = "✅ Character complete! Press Next.";
+                elements.feedback.className = 'feedback success';
+                state.score += 50;
+                saveProgress();
+            } else {
+                elements.feedback.textContent = "✅ Great review! Try another word.";
+                elements.feedback.className = 'feedback success';
+            }
             updateControlStates();
             updateStepIndicators();
             renderLeaderboard();
@@ -831,15 +1032,16 @@ function handleNextWord() {
         }
 
         loadWord(state.currentWordIndex);
+        saveProgress();
     } else {
         elements.feedback.textContent = "🎉 Level Vocabulary Completed! Phrases Unlocked.";
         elements.feedback.className = 'feedback success';
         state.progress.vocabCompleted = true;
         state.score += 500;
-        localStorage.setItem('mm_score', state.score);
         unlockSection('phrases');
         switchSection('phrases');
         renderLeaderboard();
+        saveProgress();
     }
 }
 
@@ -879,6 +1081,94 @@ function handleShare() {
         if (captureTarget.contains(watermark)) captureTarget.removeChild(watermark);
         captureTarget.style.position = originalPosition;
     });
+}
+
+// --- REVIEW MODE ---
+
+function enterReviewMode() {
+    if (state.currentWordIndex < 1) return;
+    state.reviewMode = true;
+    state.reviewIndex = state.currentWordIndex - 1;
+
+    if (elements.reviewBar) elements.reviewBar.style.display = 'flex';
+    if (elements.reviewBtn) {
+        elements.reviewBtn.textContent = '📖 Reviewing...';
+        elements.reviewBtn.classList.add('active');
+    }
+
+    if (elements.reviewSlider) {
+        elements.reviewSlider.min = 0;
+        elements.reviewSlider.max = state.currentWordIndex - 1;
+        elements.reviewSlider.value = state.reviewIndex;
+    }
+
+    if (elements.nextBtn) elements.nextBtn.style.display = 'none';
+    loadReviewWord();
+}
+
+function exitReviewMode() {
+    state.reviewMode = false;
+
+    if (elements.reviewBar) elements.reviewBar.style.display = 'none';
+    if (elements.reviewBtn) {
+        elements.reviewBtn.textContent = '🔄 Review';
+        elements.reviewBtn.classList.remove('active');
+    }
+    if (elements.nextBtn) elements.nextBtn.style.display = '';
+
+    loadWord(state.currentWordIndex);
+}
+
+function loadReviewWord() {
+    var data = getCurrentData();
+    if (!data || !data.vocab) return;
+    var word = data.vocab[state.reviewIndex];
+    if (!word) return;
+
+    elements.pinyinDisplay.textContent = word.pinyin;
+    elements.englishDisplay.textContent = word.english;
+    elements.feedback.textContent = 'Review mode — practice without affecting progress.';
+    elements.feedback.className = 'feedback';
+
+    if (elements.reviewPosition) {
+        elements.reviewPosition.textContent = (state.reviewIndex + 1) + '/' + state.currentWordIndex;
+    }
+    if (elements.reviewSlider) {
+        elements.reviewSlider.value = state.reviewIndex;
+    }
+
+    // Reset step states for practice
+    state.listenPassed = false;
+    state.pronunciationPassed = false;
+    state.writingPassed = false;
+    state.currentStep = 1;
+    state.failedStrokes = [];
+
+    if (elements.listenBtn) elements.listenBtn.textContent = '🔊 Listen';
+    if (elements.pronounceBtn) elements.pronounceBtn.textContent = '🎙️ Speak';
+
+    updateControlStates();
+    updateStepIndicators();
+    setCanvasMode('trace');
+    clearFreeDrawCanvas();
+
+    elements.characterTarget.innerHTML = '';
+    var isLight = document.body.classList.contains('light-mode');
+    var strokeColor = isLight ? '#333' : '#ccc';
+    var drawingColor = isLight ? '#333' : '#ecf0f1';
+    var writerSize = window.innerWidth <= 480 ? 150 : (window.innerWidth <= 768 ? 180 : 260);
+    state.writer = HanziWriter.create('character-target', word.chinese, {
+        width: writerSize, height: writerSize, padding: 5,
+        showOutline: true, outlineColor: '#ff4444',
+        strokeColor: strokeColor, drawingColor: drawingColor,
+        delayBetweenStrokes: 0, radicalsColor: '#337ab7'
+    });
+}
+
+function updateReviewButtonVisibility() {
+    if (elements.reviewBtn) {
+        elements.reviewBtn.style.display = state.currentWordIndex > 0 ? '' : 'none';
+    }
 }
 
 // --- OTHER ---
