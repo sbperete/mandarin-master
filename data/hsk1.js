@@ -215,7 +215,7 @@ const hsk1Data = {
         }
     ],
     memoryPalace: {
-        image: "memory_palace_kitchen_1765343362167.png",
+        image: "",
         description: "Kitchen Scene: 'Eat' (Chī) on the fridge, 'Tea' (Chá) on the table."
     }
 };

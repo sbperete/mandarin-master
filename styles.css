@@ -625,33 +625,36 @@ body.light-mode .sidebar {
 
 /* --- MOBILE --- */
 @media (max-width: 768px) {
+    /* ===== APP SHELL: 3-part flex column (header → content → bottom nav) ===== */
     .app-wrapper {
         flex-direction: column;
-        padding-bottom: 60px;
         height: 100vh;
         height: 100dvh;
         overflow: hidden;
     }
 
+    /* ===== TOP HEADER BAR ===== */
     .sidebar {
         width: 100%;
         height: auto;
-        padding: 6px 12px;
+        flex-shrink: 0;
+        padding: 4px 12px;
         border-right: none;
         border-bottom: 1px solid var(--glass-border);
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
         flex-wrap: nowrap;
-        gap: 8px;
+        gap: 6px;
         position: relative;
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
     }
 
+    .logo-area { flex-shrink: 0; }
     .logo-area h1 {
         display: block;
-        font-size: 1rem;
+        font-size: 0.95rem;
         margin: 0;
         white-space: nowrap;
     }
@@ -662,7 +665,7 @@ body.light-mode .sidebar {
     .sidebar-auth { display: none !important; }
     .level-selector { display: none; }
 
-    /* Mobile settings gear button */
+    /* Mobile settings gear */
     .mobile-settings-btn {
         display: flex;
         align-items: center;
@@ -687,16 +690,14 @@ body.light-mode .sidebar {
         background: var(--card-bg, rgba(30, 35, 50, 0.98));
         border: 1px solid var(--glass-border);
         border-radius: 12px;
-        padding: 12px;
-        min-width: 180px;
+        padding: 10px;
+        min-width: 160px;
         z-index: 500;
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
     }
-    .mobile-settings-panel.open {
-        display: flex;
-    }
+    .mobile-settings-panel.open { display: flex; }
     .mobile-settings-panel .theme-btn,
     .mobile-settings-panel .mobile-theme-btn {
         display: block;
@@ -710,12 +711,9 @@ body.light-mode .sidebar {
         border-radius: 8px;
     }
 
-    /* Professional bottom nav (Instagram/TikTok style) */
+    /* ===== BOTTOM NAV BAR (moved to app-wrapper child via JS) ===== */
     .nav-links {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
+        flex: 0 0 52px;
         background: rgba(20, 20, 30, 0.95);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
@@ -723,11 +721,9 @@ body.light-mode .sidebar {
         display: flex;
         justify-content: space-around;
         align-items: center;
-        padding: 6px 0 env(safe-area-inset-bottom, 4px);
-        z-index: 1000;
+        padding: 4px 0 env(safe-area-inset-bottom, 2px);
         margin: 0;
         box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.3);
-        height: 56px;
     }
 
     body.light-mode .nav-links {
@@ -736,11 +732,11 @@ body.light-mode .sidebar {
     }
 
     .nav-links li {
-        padding: 4px 2px;
+        padding: 2px 2px;
         margin: 0;
         flex-direction: column;
-        font-size: 0.6rem;
-        gap: 2px;
+        font-size: 0.55rem;
+        gap: 1px;
         align-items: center;
         justify-content: center;
         text-align: center;
@@ -748,16 +744,17 @@ body.light-mode .sidebar {
         border-radius: 0;
         color: var(--text-secondary);
         position: relative;
-        min-height: 44px;
+        min-height: 40px;
     }
 
     .nav-links li .icon {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         line-height: 1;
     }
 
     .nav-links li:hover {
         background: transparent;
+        padding-left: 2px;
     }
 
     .nav-links li.active {
@@ -777,118 +774,127 @@ body.light-mode .sidebar {
         border-radius: 0 0 2px 2px;
     }
 
-    .nav-links li.locked {
-        opacity: 0.35;
-    }
+    .nav-links li.locked { opacity: 0.35; }
 
-    /* Main content fills remaining space */
+    /* ===== MAIN CONTENT (scrollable middle area) ===== */
     .main-content {
-        padding: 8px 10px;
+        padding: 6px 10px;
         flex: 1;
+        min-height: 0;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
     }
 
-    /* Compact section header */
-    .section-header {
-        margin-bottom: 8px;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-    .section-header h2 {
-        font-size: 1.2rem;
-    }
-
-    /* Smaller character card */
-    #character-target {
-        width: 180px;
-        height: 180px;
-    }
-    #character-target svg {
-        width: 180px !important;
-        height: 180px !important;
-    }
-    .free-draw-container {
-        width: 180px;
-        height: 180px;
-    }
-    #free-draw-canvas {
-        width: 180px;
-        height: 180px;
-    }
-
-    /* Compact text */
-    #pinyin-display {
-        font-size: 1.8rem;
-        margin: 2px 0;
-    }
-    #english-display {
-        font-size: 0.85rem;
-        margin-bottom: 4px;
-    }
-
-    /* Compact learning card */
-    .learning-card {
-        padding: 10px !important;
+    /* ===== MOBILE LEVEL SELECTOR ===== */
+    .mobile-level-selector {
+        display: flex;
+        align-items: center;
         gap: 8px;
+        margin-bottom: 2px;
+        padding: 2px 0;
+    }
+    .mobile-level-selector label { font-size: 0.75rem; flex-shrink: 0; }
+    .mobile-level-selector select { padding: 3px 8px; font-size: 0.8rem; flex: 1; }
+
+    /* ===== SECTION HEADER ===== */
+    .section-header {
+        margin-bottom: 4px;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .section-header h2 { font-size: 1.1rem; }
+    .progress-bar-container { gap: 4px; }
+
+    /* ===== LEARNING CARD (ultra-compact) ===== */
+    .learning-card {
+        padding: 8px !important;
+        gap: 4px;
     }
     .learning-content-wrapper {
-        gap: 8px;
+        gap: 4px;
+        flex-direction: column;
+        align-items: center;
     }
 
-    /* Compact step indicators */
-    .step-progress {
-        padding: 4px 0;
+    /* Character display + canvas side by side on mobile */
+    .learning-content-wrapper {
+        flex-direction: row !important;
+        align-items: center;
+        justify-content: center;
+        gap: 10px !important;
     }
-    .step-item { min-width: 40px; }
+    .character-display {
+        text-align: center;
+        flex-shrink: 0;
+    }
+    #pinyin-display {
+        font-size: 1.5rem;
+        margin: 0;
+    }
+    #english-display {
+        font-size: 0.8rem;
+        margin-bottom: 0;
+    }
+    .icon-btn { font-size: 0.9rem; padding: 2px; }
+
+    /* Character canvas */
+    .canvas-area { justify-content: center; }
+    .canvas-label { display: none; }
+    #character-target {
+        width: 150px;
+        height: 150px;
+    }
+    #character-target svg {
+        width: 150px !important;
+        height: 150px !important;
+    }
+    .free-draw-container, #free-draw-canvas {
+        width: 150px;
+        height: 150px;
+    }
+
+    /* Step indicators */
+    .step-progress { padding: 2px 0; gap: 2px; }
+    .step-item { min-width: 36px; }
     .step-number {
-        width: 24px;
-        height: 24px;
-        font-size: 0.7rem;
+        width: 22px;
+        height: 22px;
+        font-size: 0.65rem;
     }
     .step-label { font-size: 0.5rem; }
-    .step-connector { margin-bottom: 14px; }
+    .step-connector { margin-bottom: 12px; }
 
-    /* Compact action buttons */
+    /* Action buttons */
     .controls {
-        gap: 6px;
-        margin-top: 4px;
+        gap: 4px;
+        margin-top: 2px;
+        flex-wrap: wrap;
+        justify-content: center;
     }
     .action-btn {
-        padding: 8px 10px;
-        font-size: 0.8rem;
-        min-width: 60px;
-        max-width: 120px;
-    }
-
-    /* Compact feedback */
-    .feedback {
-        font-size: 0.8rem;
-        padding: 4px 10px;
-        margin-top: 4px;
-    }
-    .canvas-mode-toggle { margin-top: 4px; }
-    .mode-btn {
-        padding: 4px 10px;
-        font-size: 0.7rem;
-    }
-
-    /* Mobile level selector compact */
-    .mobile-level-selector {
-        margin-bottom: 4px;
-        padding: 4px 0;
-    }
-    .mobile-level-selector label { font-size: 0.75rem; }
-    .mobile-level-selector select { padding: 4px 8px; font-size: 0.8rem; }
-
-    /* Review bar compact on mobile */
-    .review-bar {
-        gap: 6px;
         padding: 6px 8px;
+        font-size: 0.75rem;
+        min-width: 55px;
+        max-width: 100px;
+    }
+
+    /* Feedback */
+    .feedback {
+        font-size: 0.75rem;
+        padding: 3px 8px;
+        margin-top: 2px;
+    }
+    .canvas-mode-toggle { margin-top: 2px; }
+    .mode-btn { padding: 3px 8px; font-size: 0.65rem; }
+
+    /* Review bar */
+    .review-bar {
+        gap: 4px;
+        padding: 4px 6px;
     }
     .review-toggle-btn {
-        padding: 4px 10px;
-        font-size: 0.75rem;
+        padding: 3px 8px;
+        font-size: 0.7rem;
     }
 }
 
@@ -1381,22 +1387,25 @@ body.auth-required .app-wrapper {
     .pricing-options { flex-direction: column; }
 
     #character-target {
-        width: 150px;
-        height: 150px;
+        width: 130px;
+        height: 130px;
     }
     #character-target svg {
-        width: 150px !important;
-        height: 150px !important;
+        width: 130px !important;
+        height: 130px !important;
     }
     .free-draw-container, #free-draw-canvas {
-        width: 150px;
-        height: 150px;
+        width: 130px;
+        height: 130px;
     }
-    #pinyin-display { font-size: 1.5rem; }
+    #pinyin-display { font-size: 1.3rem; }
     .action-btn {
-        padding: 6px 8px;
-        font-size: 0.75rem;
-        min-width: 50px;
+        padding: 5px 6px;
+        font-size: 0.7rem;
+        min-width: 48px;
     }
     .section-header h2 { font-size: 1rem; }
+    .nav-links li { font-size: 0.5rem; }
+    .nav-links li .icon { font-size: 1rem; }
+    .nav-links { flex: 0 0 48px; }
 }

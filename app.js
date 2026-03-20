@@ -388,9 +388,38 @@ const Guide = {
 window.Guide = Guide;
 
 // --- INITIALIZATION ---
+// Move nav-links to app-wrapper on mobile so it becomes a flex child at the bottom
+// (avoids position:fixed containing-block issues with sidebar backdrop-filter/transform)
+function setupMobileNav() {
+    var navLinks = document.querySelector('.nav-links');
+    var sidebar = document.querySelector('.sidebar');
+    var appWrapper = document.querySelector('.app-wrapper');
+    if (!navLinks || !sidebar || !appWrapper) return;
+
+    function positionNav() {
+        if (window.innerWidth <= 768) {
+            if (navLinks.parentElement !== appWrapper) {
+                appWrapper.appendChild(navLinks);
+            }
+        } else {
+            if (navLinks.parentElement !== sidebar) {
+                var levelSelector = sidebar.querySelector('.level-selector');
+                if (levelSelector) {
+                    levelSelector.after(navLinks);
+                } else {
+                    sidebar.appendChild(navLinks);
+                }
+            }
+        }
+    }
+    positionNav();
+    window.addEventListener('resize', positionNav);
+}
+
 function init() {
     loadThemePreference();
     Guide.init();
+    setupMobileNav();
     setupEventListeners();
     setupAuthListeners();
     checkPremiumStatus();
@@ -839,7 +868,7 @@ function loadWord(index) {
     const drawingColor = isLight ? '#333' : '#ecf0f1';
 
     // Create HanziWriter with guided trace (responsive size)
-    var writerSize = window.innerWidth <= 480 ? 150 : (window.innerWidth <= 768 ? 180 : 260);
+    var writerSize = window.innerWidth <= 480 ? 130 : (window.innerWidth <= 768 ? 150 : 260);
     state.writer = HanziWriter.create('character-target', word.chinese, {
         width: writerSize, height: writerSize, padding: 5,
         showOutline: true,
@@ -1156,7 +1185,7 @@ function loadReviewWord() {
     var isLight = document.body.classList.contains('light-mode');
     var strokeColor = isLight ? '#333' : '#ccc';
     var drawingColor = isLight ? '#333' : '#ecf0f1';
-    var writerSize = window.innerWidth <= 480 ? 150 : (window.innerWidth <= 768 ? 180 : 260);
+    var writerSize = window.innerWidth <= 480 ? 130 : (window.innerWidth <= 768 ? 150 : 260);
     state.writer = HanziWriter.create('character-target', word.chinese, {
         width: writerSize, height: writerSize, padding: 5,
         showOutline: true, outlineColor: '#ff4444',
