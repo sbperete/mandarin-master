@@ -1,7 +1,7 @@
-// Mandarin Master — Service Worker v5
+// Mandarin Master — Service Worker v6
 // Network-first for app files, cache as fallback for offline
 
-const CACHE_NAME = 'mandarin-master-v5';
+const CACHE_NAME = 'mandarin-master-v6';
 const SHELL_ASSETS = [
     '/',
     '/index.html',
