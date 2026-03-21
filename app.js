@@ -634,23 +634,26 @@ function setupEventListeners() {
         elements.reviewExit.addEventListener('click', exitReviewMode);
     }
 
+    // --- Mobile Header Theme Toggle ---
+    var headerThemeBtn = document.getElementById('mobile-theme-toggle-header');
+    if (headerThemeBtn) {
+        function updateHeaderThemeIcon() {
+            var isLight = document.body.classList.contains('light-mode');
+            headerThemeBtn.textContent = isLight ? '🌙' : '☀️';
+        }
+        updateHeaderThemeIcon();
+        headerThemeBtn.addEventListener('click', function() {
+            elements.themeToggle.click(); // delegate to main toggle
+            updateHeaderThemeIcon();
+        });
+    }
+
     // --- Mobile Settings Panel ---
     var settingsBtn = document.getElementById('mobile-settings-btn');
     var settingsPanel = document.getElementById('mobile-settings-panel');
     if (settingsBtn && settingsPanel) {
-        // Populate panel with theme + auth controls
-        settingsPanel.innerHTML = '<button id="mobile-theme-toggle" class="theme-btn mobile-theme-btn">☀️ Light Mode</button>' +
-            '<button class="sidebar-auth-btn mobile-signout-btn" onclick="auth.signOut()">Sign Out</button>';
-
-        var mobileThemeBtn = document.getElementById('mobile-theme-toggle');
-        if (mobileThemeBtn) {
-            mobileThemeBtn.addEventListener('click', function() {
-                elements.themeToggle.click(); // delegate to main toggle
-                var isLight = document.body.classList.contains('light-mode');
-                mobileThemeBtn.textContent = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
-                settingsPanel.classList.remove('open');
-            });
-        }
+        // Populate panel with auth controls only (theme moved to header)
+        settingsPanel.innerHTML = '<button class="sidebar-auth-btn mobile-signout-btn" onclick="auth.signOut()">Sign Out</button>';
 
         settingsBtn.addEventListener('click', function(e) {
             e.stopPropagation();

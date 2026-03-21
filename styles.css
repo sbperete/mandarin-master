@@ -675,6 +675,7 @@ body.light-mode .sidebar {
 /* --- MOBILE SETTINGS --- */
 .mobile-settings-btn { display: none; }
 .mobile-settings-panel { display: none; }
+.mobile-theme-header-btn { display: none; }
 
 /* --- MOBILE --- */
 @media (max-width: 768px) {
@@ -684,6 +685,7 @@ body.light-mode .sidebar {
         height: 100dvh;
         overflow: hidden;
         padding-top: max(var(--safe-top), 8px);
+        padding-bottom: calc(56px + max(var(--safe-bottom), 8px));
     }
 
     /* ===== TOP BAR ===== */
@@ -741,6 +743,26 @@ body.light-mode .sidebar {
         color: var(--gold);
     }
 
+    /* Mobile theme toggle (header) */
+    .mobile-theme-header-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        color: var(--text);
+        width: 32px;
+        height: 32px;
+        font-size: 15px;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background 0.2s;
+    }
+    .mobile-theme-header-btn:active {
+        background: var(--surface2);
+    }
+
     /* Mobile settings gear */
     .mobile-settings-btn {
         display: flex;
@@ -787,9 +809,13 @@ body.light-mode .sidebar {
         border-radius: 8px;
     }
 
-    /* ===== BOTTOM NAV BAR ===== */
+    /* ===== BOTTOM NAV BAR (fixed to viewport bottom) ===== */
     .nav-links {
-        flex-shrink: 0;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 900;
         display: flex;
         border-top: 1px solid var(--border);
         padding: 8px 0 max(var(--safe-bottom), 8px);
@@ -798,6 +824,8 @@ body.light-mode .sidebar {
         -webkit-backdrop-filter: none;
         box-shadow: none;
         margin: 0;
+        flex-grow: 0;
+        list-style: none;
     }
 
     body.light-mode .nav-links {
