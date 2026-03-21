@@ -376,7 +376,6 @@ body.light-mode .sidebar {
 /* Drawing Area */
 #character-target {
     width: 260px;
-    /* Slightly reduced standard size */
     height: 260px;
     border: 2px solid var(--glass-border);
     border-radius: var(--radius-md);
@@ -386,10 +385,33 @@ body.light-mode .sidebar {
     align-items: center;
     position: relative;
     box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2);
+    transition: width 0.4s ease, height 0.4s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
 #character-target svg {
     display: block;
+    transition: width 0.4s ease, height 0.4s ease;
+}
+
+/* Write step expansion animation */
+@keyframes write-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.4), inset 0 0 20px rgba(0, 0, 0, 0.2); }
+    50% { box-shadow: 0 0 24px 8px rgba(0, 212, 170, 0.15), inset 0 0 20px rgba(0, 0, 0, 0.2); }
+}
+@keyframes write-glow-border {
+    0%, 100% { border-color: var(--teal); }
+    50% { border-color: var(--gold); }
+}
+
+#character-target.write-active {
+    width: 320px;
+    height: 320px;
+    border: 2px solid var(--teal);
+    animation: write-pulse 2s ease-in-out infinite, write-glow-border 3s ease-in-out infinite;
+}
+#character-target.write-active svg {
+    width: 320px !important;
+    height: 320px !important;
 }
 
 /* Controls */
@@ -1056,6 +1078,17 @@ body.light-mode .sidebar {
         width: 110px !important;
         height: 110px !important;
     }
+    #character-target.write-active {
+        width: 160px;
+        height: 160px;
+        border: 2px solid var(--teal) !important;
+        box-shadow: 0 0 20px rgba(0,212,170,0.15) !important;
+        animation: write-pulse 2s ease-in-out infinite, write-glow-border 3s ease-in-out infinite;
+    }
+    #character-target.write-active svg {
+        width: 160px !important;
+        height: 160px !important;
+    }
     .free-draw-container, #free-draw-canvas {
         width: 110px;
         height: 110px;
@@ -1198,6 +1231,7 @@ body.light-mode .sidebar {
     padding-top: 14px;
     padding-bottom: 24px;
     max-width: 700px;
+    margin: 0 auto;
 }
 @media (max-width: 768px) {
     .below-card-content {
@@ -1362,6 +1396,8 @@ body.light-mode .sidebar {
 }
 .upsell-cta-btn {
     width: 100%;
+    max-width: 360px;
+    margin: 0 auto;
     background: var(--teal);
     border: none;
     border-radius: 12px;
@@ -1389,6 +1425,59 @@ body.light-mode .sidebar {
     .wod-row { animation: fade-up 0.35s 0.14s ease both; }
     .quick-grid { animation: fade-up 0.35s 0.20s ease both; }
     .upsell { animation: fade-up 0.35s 0.26s ease both; }
+}
+
+/* ===== LEARNED/UNKNOWN WORD HIGHLIGHTING ===== */
+.word-known {
+    color: var(--teal);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: rgba(0, 212, 170, 0.3);
+    text-underline-offset: 2px;
+}
+.word-unknown {
+    color: var(--text-3);
+    opacity: 0.6;
+    cursor: help;
+    border-bottom: 1px dashed var(--text-3);
+}
+.phrase-relevant {
+    border-left: 3px solid var(--teal);
+    background: var(--teal-dim);
+}
+body.light-mode .word-known {
+    color: #00897b;
+    text-decoration-color: rgba(0, 137, 123, 0.3);
+}
+body.light-mode .word-unknown {
+    color: #aab4be;
+}
+
+/* ===== BACKGROUND AUDIO BUTTON ===== */
+.audio-btn {
+    margin-top: 4px;
+}
+.audio-btn.audio-active,
+.mobile-audio-btn.audio-active {
+    color: var(--teal);
+    border-color: var(--teal);
+}
+.mobile-audio-btn { display: none; }
+@media (max-width: 768px) {
+    .mobile-audio-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        color: var(--text);
+        width: 32px;
+        height: 32px;
+        font-size: 15px;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
 }
 
 /* --- MODALS --- */
@@ -1883,6 +1972,8 @@ body.auth-required .app-wrapper {
     #character-target { width: 100px; height: 100px; }
     #character-target svg { width: 100px !important; height: 100px !important; }
     .free-draw-container, #free-draw-canvas { width: 100px; height: 100px; }
+    #character-target.write-active { width: 140px; height: 140px; }
+    #character-target.write-active svg { width: 140px !important; height: 140px !important; }
     #pinyin-display { font-size: 22px; }
 
     .action-btn { padding: 9px 6px; font-size: 12px; }

@@ -27,7 +27,8 @@ const state = {
     streak: parseInt(localStorage.getItem('mm_streak')) || 0,
     lastStudyDate: localStorage.getItem('mm_lastStudyDate') || null,
     sessionStartTime: Date.now(),
-    xpToday: parseInt(localStorage.getItem('mm_xpToday')) || 0
+    xpToday: parseInt(localStorage.getItem('mm_xpToday')) || 0,
+    wordsStudiedThisSession: 0
 };
 
 // Data References
@@ -159,6 +160,112 @@ function checkPremiumStatus() {
     }
 }
 
+// --- SUPABASE DATA SYNC ---
+var SupabaseSync = {
+    _sb: null,
+    _userId: null,
+
+    init: function(supabaseClient, userId) {
+        this._sb = supabaseClient;
+        this._userId = userId;
+    },
+
+    saveProgress: function(s) {
+        if (!this._sb || !this._userId) return;
+        this._sb.from('user_progress').upsert({
+            user_id: this._userId,
+            level: s.currentLevel,
+            word_index: s.currentWordIndex,
+            score: s.score,
+            streak: s.streak,
+            xp_today: s.xpToday,
+            last_study_date: s.lastStudyDate,
+            vocab_completed: s.progress.vocabCompleted,
+            phrases_completed: s.progress.phrasesCompleted,
+            story_completed: s.progress.storyCompleted,
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' }).then(function(res) {
+            if (res.error) console.warn('[Sync] Progress save error:', res.error.message);
+            else console.log('[Sync] Progress saved to table');
+        }).catch(function(err) { console.warn('[Sync] Progress save failed:', err); });
+    },
+
+    fetchProgress: function() {
+        if (!this._sb || !this._userId) return Promise.resolve(null);
+        return this._sb.from('user_progress').select('*').eq('user_id', this._userId).single()
+            .then(function(res) {
+                if (res.error && res.error.code !== 'PGRST116') { console.warn('[Sync] Fetch error:', res.error.message); return null; }
+                return res.data || null;
+            }).catch(function(err) { console.warn('[Sync] Fetch failed:', err); return null; });
+    },
+
+    saveWordScore: function(level, wordIndex, chinese, scoreData) {
+        if (!this._sb || !this._userId) return;
+        this._sb.from('word_scores').upsert({
+            user_id: this._userId,
+            level: level,
+            word_index: wordIndex,
+            chinese: chinese,
+            listen_passed: !!scoreData.listenPassed,
+            speak_passed: !!scoreData.speakPassed,
+            write_passed: !!scoreData.writePassed,
+            attempts: scoreData.attempts || 0,
+            failed_strokes: scoreData.failedStrokes || 0,
+            mastered: !!scoreData.mastered,
+            last_practiced: new Date().toISOString()
+        }, { onConflict: 'user_id,level,word_index' }).then(function(res) {
+            if (res.error) console.warn('[Sync] Word score error:', res.error.message);
+        }).catch(function(err) { console.warn('[Sync] Word score failed:', err); });
+    },
+
+    fetchWordScores: function(level) {
+        if (!this._sb || !this._userId) return Promise.resolve([]);
+        return this._sb.from('word_scores').select('*').eq('user_id', this._userId).eq('level', level)
+            .order('word_index', { ascending: true })
+            .then(function(res) { return (res.data || []); })
+            .catch(function(err) { console.warn('[Sync] Fetch word scores failed:', err); return []; });
+    },
+
+    logSession: function(sessionData) {
+        if (!this._sb || !this._userId) return;
+        this._sb.from('study_sessions').insert({
+            user_id: this._userId,
+            started_at: sessionData.startedAt,
+            ended_at: sessionData.endedAt,
+            duration_seconds: sessionData.durationSeconds,
+            words_studied: sessionData.wordsStudied,
+            level: sessionData.level,
+            xp_earned: sessionData.xpEarned
+        }).then(function(res) {
+            if (res.error) console.warn('[Sync] Session log error:', res.error.message);
+        }).catch(function(err) { console.warn('[Sync] Session log failed:', err); });
+    }
+};
+
+// --- PER-WORD SCORE TRACKING ---
+function recordWordScore() {
+    var word = getCurrentWord();
+    if (!word) return;
+    var key = 'mm_wordScores_' + state.currentLevel;
+    var scores = {};
+    try { scores = JSON.parse(localStorage.getItem(key)) || {}; } catch(e) {}
+    var idx = String(state.currentWordIndex);
+    if (!scores[idx]) {
+        scores[idx] = { attempts: 0, failedStrokes: 0, listenPassed: false, speakPassed: false, writePassed: false, mastered: false };
+    }
+    scores[idx].listenPassed = state.listenPassed;
+    scores[idx].speakPassed = state.pronunciationPassed;
+    scores[idx].writePassed = state.writingPassed;
+    scores[idx].attempts = (scores[idx].attempts || 0) + 1;
+    scores[idx].failedStrokes = state.failedStrokes.length;
+    scores[idx].mastered = state.writingPassed;
+    localStorage.setItem(key, JSON.stringify(scores));
+
+    if (state.isLoggedIn) {
+        SupabaseSync.saveWordScore(state.currentLevel, state.currentWordIndex, word.chinese, scores[idx]);
+    }
+}
+
 // --- PROGRESS PERSISTENCE ---
 
 function saveProgress() {
@@ -167,8 +274,11 @@ function saveProgress() {
     localStorage.setItem('mm_currentWordIndex', state.currentWordIndex);
     localStorage.setItem('mm_progress', JSON.stringify(state.progress));
     localStorage.setItem('mm_score', state.score);
+    localStorage.setItem('mm_streak', state.streak);
+    localStorage.setItem('mm_xpToday', state.xpToday);
+    localStorage.setItem('mm_lastStudyDate', state.lastStudyDate);
 
-    // Async sync to Supabase user_metadata (cross-device persistence)
+    // Async sync to Supabase user_metadata (backward compat)
     if (window.supabaseClient && state.isLoggedIn) {
         window.supabaseClient.auth.updateUser({
             data: {
@@ -179,10 +289,13 @@ function saveProgress() {
                 progress_updated_at: new Date().toISOString()
             }
         }).then(function() {
-            console.log('[Progress] Synced to Supabase');
+            console.log('[Progress] Synced to Supabase metadata');
         }).catch(function(err) {
-            console.warn('[Progress] Supabase sync failed:', err);
+            console.warn('[Progress] Supabase metadata sync failed:', err);
         });
+
+        // Also save to user_progress table
+        SupabaseSync.saveProgress(state);
     }
 }
 
@@ -216,57 +329,80 @@ function restoreProgressFromLocal() {
 function restoreProgressFromSupabase() {
     if (!window.supabaseClient || !state.isLoggedIn) return;
 
-    window.supabaseClient.auth.getUser().then(function(result) {
-        if (!result.data || !result.data.user || !result.data.user.user_metadata) return;
-        var meta = result.data.user.user_metadata;
-
-        // Only restore if Supabase has progress data
-        if (typeof meta.currentWordIndex === 'number') {
-            var supabaseIndex = meta.currentWordIndex || 0;
-            var supabaseLevel = meta.currentLevel || 1;
-
-            // Use Supabase data if it has more progress than local
-            if (supabaseIndex > state.currentWordIndex || supabaseLevel > state.currentLevel) {
-                state.currentLevel = supabaseLevel;
-                state.currentWordIndex = supabaseIndex;
-                if (meta.progress) {
-                    state.progress = {
-                        vocabCompleted: !!meta.progress.vocabCompleted,
-                        phrasesCompleted: !!meta.progress.phrasesCompleted,
-                        storyCompleted: !!meta.progress.storyCompleted
-                    };
-                }
-                if (typeof meta.score === 'number' && meta.score > state.score) {
-                    state.score = meta.score;
-                }
-
-                // Update localStorage with Supabase data
-                localStorage.setItem('mm_currentLevel', state.currentLevel);
-                localStorage.setItem('mm_currentWordIndex', state.currentWordIndex);
-                localStorage.setItem('mm_progress', JSON.stringify(state.progress));
-                localStorage.setItem('mm_score', state.score);
-
-                // Re-render
-                if (elements.levelSelect) elements.levelSelect.value = state.currentLevel;
-                if (elements.mobileLevelSelect) elements.mobileLevelSelect.value = state.currentLevel;
-
-                // Unlock sections based on progress
-                if (state.progress.vocabCompleted) unlockSection('phrases');
-                if (state.progress.phrasesCompleted) unlockSection('story');
-                if (state.progress.storyCompleted) unlockSection('resources');
-
-                loadWord(state.currentWordIndex);
-                updateProgress();
-                console.log('[Progress] Restored from Supabase: Level', state.currentLevel, 'Word', state.currentWordIndex);
+    // Try user_progress table first, then fall back to user_metadata
+    SupabaseSync.fetchProgress().then(function(tableData) {
+        if (tableData) {
+            var isTableAhead = tableData.word_index > state.currentWordIndex || tableData.level > state.currentLevel;
+            if (isTableAhead) {
+                state.currentLevel = tableData.level;
+                state.currentWordIndex = tableData.word_index;
+                state.score = Math.max(state.score, tableData.score);
+                state.streak = Math.max(state.streak, tableData.streak);
+                state.xpToday = Math.max(state.xpToday, tableData.xp_today || 0);
+                state.lastStudyDate = tableData.last_study_date || state.lastStudyDate;
+                state.progress = {
+                    vocabCompleted: !!tableData.vocab_completed,
+                    phrasesCompleted: !!tableData.phrases_completed,
+                    storyCompleted: !!tableData.story_completed
+                };
+                _applyRestoredProgress();
+                console.log('[Progress] Restored from user_progress table');
+                return;
+            } else if (state.currentWordIndex > tableData.word_index) {
+                // Local is ahead — back-fill to table
+                SupabaseSync.saveProgress(state);
             }
-        } else if (state.currentWordIndex > 0) {
-            // Local has progress but Supabase doesn't — back-fill
-            console.log('[Progress] Back-filling Supabase from localStorage...');
-            saveProgress();
+            return;
         }
+
+        // Fallback: try user_metadata (legacy)
+        return window.supabaseClient.auth.getUser().then(function(result) {
+            if (!result.data || !result.data.user || !result.data.user.user_metadata) return;
+            var meta = result.data.user.user_metadata;
+            if (typeof meta.currentWordIndex === 'number') {
+                var supabaseIndex = meta.currentWordIndex || 0;
+                var supabaseLevel = meta.currentLevel || 1;
+                if (supabaseIndex > state.currentWordIndex || supabaseLevel > state.currentLevel) {
+                    state.currentLevel = supabaseLevel;
+                    state.currentWordIndex = supabaseIndex;
+                    if (meta.progress) {
+                        state.progress = {
+                            vocabCompleted: !!meta.progress.vocabCompleted,
+                            phrasesCompleted: !!meta.progress.phrasesCompleted,
+                            storyCompleted: !!meta.progress.storyCompleted
+                        };
+                    }
+                    if (typeof meta.score === 'number' && meta.score > state.score) state.score = meta.score;
+                    _applyRestoredProgress();
+                    // Back-fill to table
+                    SupabaseSync.saveProgress(state);
+                    console.log('[Progress] Restored from user_metadata (legacy), back-filled to table');
+                }
+            } else if (state.currentWordIndex > 0) {
+                saveProgress();
+            }
+        });
     }).catch(function(err) {
         console.warn('[Progress] Supabase restore failed:', err);
     });
+}
+
+function _applyRestoredProgress() {
+    localStorage.setItem('mm_currentLevel', state.currentLevel);
+    localStorage.setItem('mm_currentWordIndex', state.currentWordIndex);
+    localStorage.setItem('mm_progress', JSON.stringify(state.progress));
+    localStorage.setItem('mm_score', state.score);
+    localStorage.setItem('mm_streak', state.streak);
+    localStorage.setItem('mm_xpToday', state.xpToday);
+    localStorage.setItem('mm_lastStudyDate', state.lastStudyDate);
+    if (elements.levelSelect) elements.levelSelect.value = state.currentLevel;
+    if (elements.mobileLevelSelect) elements.mobileLevelSelect.value = state.currentLevel;
+    if (state.progress.vocabCompleted) unlockSection('phrases');
+    if (state.progress.phrasesCompleted) unlockSection('story');
+    if (state.progress.storyCompleted) unlockSection('resources');
+    loadWord(state.currentWordIndex);
+    updateProgress();
+    updateBelowCardContent();
 }
 
 // --- STREAK & BELOW-CARD CONTENT ---
@@ -483,6 +619,154 @@ function setupMobileNav() {
     window.addEventListener('resize', positionNav);
 }
 
+// --- BACKGROUND AMBIENT AUDIO (Web Audio API) ---
+var BackgroundAudio = {
+    ctx: null,
+    isPlaying: false,
+    masterGain: null,
+    nodes: [],
+    volume: 0.15,
+
+    init: function() {
+        if (this.ctx) return;
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = this.volume;
+        this.masterGain.connect(this.ctx.destination);
+    },
+
+    start: function() {
+        this.init();
+        if (this.isPlaying) return;
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        this.isPlaying = true;
+
+        // Layer 1: Warm pad chord (A major — calming, open)
+        this._createPad(220, 'sine', 0.06);       // A3
+        this._createPad(277.18, 'sine', 0.04);    // C#4
+        this._createPad(329.63, 'sine', 0.03);    // E4
+
+        // Layer 2: Slow modulated pad for gentle movement
+        this._createModulatedPad(174.61, 0.025, 0.04); // F3
+
+        // Layer 3: Filtered noise (soft rain/air texture)
+        this._createFilteredNoise(0.015);
+
+        // Layer 4: Gentle rhythmic pulse (~65 BPM)
+        this._scheduleRhythm(65);
+
+        this._updateButtons();
+    },
+
+    stop: function() {
+        this.isPlaying = false;
+        for (var i = 0; i < this.nodes.length; i++) {
+            try { this.nodes[i].stop(); } catch(e) {}
+            try { this.nodes[i].disconnect(); } catch(e) {}
+        }
+        this.nodes = [];
+        this._updateButtons();
+    },
+
+    toggle: function() {
+        if (this.isPlaying) {
+            this.stop();
+            localStorage.setItem('mm_bgAudio', 'off');
+        } else {
+            this.start();
+            localStorage.setItem('mm_bgAudio', 'on');
+        }
+    },
+
+    _createPad: function(freq, type, gain) {
+        var osc = this.ctx.createOscillator();
+        var g = this.ctx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.value = freq;
+        g.gain.value = gain;
+        osc.connect(g);
+        g.connect(this.masterGain);
+        osc.start();
+        this.nodes.push(osc);
+    },
+
+    _createModulatedPad: function(freq, gain, lfoRate) {
+        var osc = this.ctx.createOscillator();
+        var g = this.ctx.createGain();
+        var lfo = this.ctx.createOscillator();
+        var lfoGain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        g.gain.value = gain;
+        lfo.type = 'sine';
+        lfo.frequency.value = lfoRate;
+        lfoGain.gain.value = freq * 0.02;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+        osc.connect(g);
+        g.connect(this.masterGain);
+        osc.start();
+        lfo.start();
+        this.nodes.push(osc, lfo);
+    },
+
+    _createFilteredNoise: function(gain) {
+        var bufferSize = this.ctx.sampleRate * 2;
+        var buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        var data = buffer.getChannelData(0);
+        for (var i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        var source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        var filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 400;
+        filter.Q.value = 0.5;
+        var g = this.ctx.createGain();
+        g.gain.value = gain;
+        source.connect(filter);
+        filter.connect(g);
+        g.connect(this.masterGain);
+        source.start();
+        this.nodes.push(source);
+    },
+
+    _scheduleRhythm: function(bpm) {
+        var interval = 60 / bpm;
+        var now = this.ctx.currentTime;
+        var count = bpm * 5; // 5 minutes of gentle ticks
+        for (var i = 0; i < count; i++) {
+            var t = now + i * interval;
+            var osc = this.ctx.createOscillator();
+            var g = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 440;
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.012, t + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+            osc.connect(g);
+            g.connect(this.masterGain);
+            osc.start(t);
+            osc.stop(t + 0.35);
+        }
+    },
+
+    _updateButtons: function() {
+        var desktopBtn = document.getElementById('bg-audio-btn');
+        var mobileBtn = document.getElementById('mobile-audio-btn');
+        var label = this.isPlaying ? '🔊 Sound On' : '🔇 Sound Off';
+        var icon = this.isPlaying ? '🔊' : '🔇';
+        if (desktopBtn) {
+            desktopBtn.textContent = label;
+            desktopBtn.classList.toggle('audio-active', this.isPlaying);
+        }
+        if (mobileBtn) {
+            mobileBtn.textContent = icon;
+            mobileBtn.classList.toggle('audio-active', this.isPlaying);
+        }
+    }
+};
+
 function init() {
     loadThemePreference();
     Guide.init();
@@ -497,6 +781,21 @@ function init() {
 
     // Update study time every 60 seconds
     setInterval(function() { updateBelowCardContent(); }, 60000);
+
+    // Log study session on page close
+    window.addEventListener('beforeunload', function() {
+        if (state.isLoggedIn && state.wordsStudiedThisSession > 0) {
+            var now = Date.now();
+            SupabaseSync.logSession({
+                startedAt: new Date(state.sessionStartTime).toISOString(),
+                endedAt: new Date(now).toISOString(),
+                durationSeconds: Math.round((now - state.sessionStartTime) / 1000),
+                wordsStudied: state.wordsStudiedThisSession,
+                level: state.currentLevel,
+                xpEarned: state.xpToday
+            });
+        }
+    });
 
     // Daily Mode Check
     const urlParams = new URLSearchParams(window.location.search);
@@ -685,6 +984,22 @@ function setupEventListeners() {
             showPaywall();
         });
     }
+
+    // --- BACKGROUND AUDIO ---
+    var bgAudioBtn = document.getElementById('bg-audio-btn');
+    var mobileBgAudioBtn = document.getElementById('mobile-audio-btn');
+    if (bgAudioBtn) bgAudioBtn.addEventListener('click', function() { BackgroundAudio.toggle(); });
+    if (mobileBgAudioBtn) mobileBgAudioBtn.addEventListener('click', function() { BackgroundAudio.toggle(); });
+
+    // Auto-resume audio on first click if user had it on previously
+    var savedAudio = localStorage.getItem('mm_bgAudio');
+    if (savedAudio === 'on') {
+        var resumeAudio = function() {
+            BackgroundAudio.start();
+            document.removeEventListener('click', resumeAudio);
+        };
+        document.addEventListener('click', resumeAudio, { once: true });
+    }
 }
 
 // --- FREE DRAW CANVAS ---
@@ -787,6 +1102,7 @@ function handleListen() {
         state.currentStep = 2;
         elements.listenBtn.textContent = '✅ Listened';
         elements.feedback.textContent = '✅ Good! Now try to pronounce it yourself.';
+        recordWordScore();
         elements.feedback.className = 'feedback success';
         updateControlStates();
         updateStepIndicators();
@@ -829,6 +1145,7 @@ function setupAuthListeners() {
         if (user) {
             state.user = user;
             state.isLoggedIn = true;
+            SupabaseSync.init(window.supabaseClient, user.id);
             document.body.classList.remove('auth-required');
             if (window.AuthModal && window.AuthModal.isClosable === false) {
                 window.AuthModal.isClosable = true;
@@ -946,6 +1263,7 @@ function loadWord(index) {
     state.writingPassed = false;
     state.currentStep = 1;
     state.failedStrokes = [];
+    elements.characterTarget.classList.remove('write-active');
 
     // Reset button labels
     if (elements.listenBtn) elements.listenBtn.textContent = '🔊 Listen';
@@ -1071,6 +1389,7 @@ function handlePronounce() {
             state.pronunciationPassed = true;
             state.currentStep = 3;
             elements.pronounceBtn.textContent = '✅ Spoken';
+            recordWordScore();
             if (Guide.step === 1 && Guide.active) setTimeout(() => Guide.showStep(2), 500);
         } else {
             const heard = event.results[0][0].transcript;
@@ -1109,6 +1428,25 @@ function handlePronounce() {
 }
 
 function handleDraw() {
+    // Expand the writing area with animation
+    elements.characterTarget.classList.add('write-active');
+
+    // Recreate HanziWriter at expanded size
+    var expandedSize = window.innerWidth <= 480 ? 140 : (window.innerWidth <= 768 ? 160 : 320);
+    elements.characterTarget.innerHTML = '';
+    var word = getCurrentWord();
+    if (!word) return;
+    var isLight = document.body.classList.contains('light-mode');
+    state.writer = HanziWriter.create('character-target', word.chinese, {
+        width: expandedSize, height: expandedSize, padding: 5,
+        showOutline: true,
+        outlineColor: '#ff4444',
+        strokeColor: isLight ? '#333' : '#ccc',
+        drawingColor: isLight ? '#333' : '#ecf0f1',
+        delayBetweenStrokes: 0,
+        radicalsColor: '#337ab7'
+    });
+
     // Show canvas mode toggle when entering write step
     if (elements.canvasModeToggle) elements.canvasModeToggle.style.display = '';
 
@@ -1129,6 +1467,9 @@ function handleDraw() {
         onComplete: () => {
             state.writingPassed = true;
             state.currentStep = 4;
+            // Retract the writing area
+            elements.characterTarget.classList.remove('write-active');
+            recordWordScore();
             if (!state.reviewMode) {
                 elements.feedback.textContent = "✅ Character complete! Press Next.";
                 elements.feedback.className = 'feedback success';
@@ -1148,6 +1489,7 @@ function handleDraw() {
 
 function handleNextWord() {
     if (Guide.step === 3 && Guide.active) Guide.finish();
+    state.wordsStudiedThisSession++;
     const total = getCurrentData().vocab.length;
     if (state.currentWordIndex < total - 1) {
         state.currentWordIndex++;
@@ -1302,21 +1644,93 @@ function updateReviewButtonVisibility() {
 
 // --- OTHER ---
 
+// --- LEARNED WORD HIGHLIGHTING ---
+function getLearnedWords() {
+    var data = getCurrentData();
+    if (!data || !data.vocab) return new Set();
+    var learned = new Set();
+    for (var i = 0; i < state.currentWordIndex; i++) {
+        if (data.vocab[i]) learned.add(data.vocab[i].chinese);
+    }
+    return learned;
+}
+
+function getUnlearnedWords() {
+    var data = getCurrentData();
+    if (!data || !data.vocab) return new Set();
+    var unlearned = new Set();
+    for (var i = state.currentWordIndex; i < data.vocab.length; i++) {
+        if (data.vocab[i]) unlearned.add(data.vocab[i].chinese);
+    }
+    return unlearned;
+}
+
+function highlightSentence(sentence, learnedSet, unlearnedSet) {
+    var chars = Array.from(sentence);
+    var result = '';
+    var i = 0;
+    while (i < chars.length) {
+        var matched = false;
+        for (var len = Math.min(4, chars.length - i); len >= 1; len--) {
+            var substr = chars.slice(i, i + len).join('');
+            if (learnedSet.has(substr)) {
+                result += '<span class="word-known">' + substr + '</span>';
+                i += len;
+                matched = true;
+                break;
+            }
+            if (unlearnedSet.has(substr)) {
+                result += '<span class="word-unknown" title="Not yet learned">' + substr + '</span>';
+                i += len;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            result += chars[i];
+            i++;
+        }
+    }
+    return result;
+}
+
 function renderPhrases() {
-    const data = getCurrentData(); if (!data.phrases) return;
-    elements.phrasesList.innerHTML = data.phrases.map(p => `
-        <div class="phrase-item">
-            <div class="phrase-content"><h3>${p.chinese}</h3><p>${p.pinyin} - ${p.english}</p></div>
-            <button class="icon-btn" onclick="speak('${p.chinese}')">🔊</button>
-        </div>`).join('');
+    const data = getCurrentData(); if (!data || !data.phrases) return;
+    var learned = getLearnedWords();
+    var unlearned = getUnlearnedWords();
+
+    // Score phrases by how many learned words they contain
+    var scored = data.phrases.map(function(p) {
+        var matchCount = 0;
+        learned.forEach(function(w) { if (p.chinese.includes(w)) matchCount++; });
+        return { phrase: p, matchCount: matchCount };
+    });
+    scored.sort(function(a, b) { return b.matchCount - a.matchCount; });
+
+    elements.phrasesList.innerHTML = scored.map(function(item) {
+        var p = item.phrase;
+        var highlighted = highlightSentence(p.chinese, learned, unlearned);
+        var relevanceClass = item.matchCount > 0 ? 'phrase-relevant' : '';
+        return '<div class="phrase-item ' + relevanceClass + '">' +
+            '<div class="phrase-content"><h3>' + highlighted + '</h3><p>' + p.pinyin + ' - ' + p.english + '</p></div>' +
+            '<button class="icon-btn" onclick="speak(\'' + p.chinese.replace(/'/g, "\\'") + '\')">🔊</button></div>';
+    }).join('');
     setTimeout(() => { unlockSection('story'); }, 1000);
 }
 
 function renderStory() {
-    const data = getCurrentData(); if (!data.story) return;
+    const data = getCurrentData(); if (!data || !data.story) return;
+    var learned = getLearnedWords();
+    var unlearned = getUnlearnedWords();
+
     elements.storyTitle.textContent = data.story.title;
-    elements.storyContent.innerHTML = data.story.content.map(line => `
-        <div class="story-line" onclick="speak('${line.chinese}')"><span class="pinyin">${line.pinyin}</span><span class="chinese">${line.chinese}</span><span class="english">${line.english}</span></div>`).join('');
+    elements.storyContent.innerHTML = data.story.content.map(function(line) {
+        var highlighted = highlightSentence(line.chinese, learned, unlearned);
+        return '<div class="story-line" onclick="speak(\'' + line.chinese.replace(/'/g, "\\'") + '\')">' +
+            '<span class="pinyin">' + line.pinyin + '</span>' +
+            '<span class="chinese">' + highlighted + '</span>' +
+            '<span class="english">' + line.english + '</span></div>';
+    }).join('');
     setTimeout(() => { unlockSection('resources'); }, 1000);
 }
 
