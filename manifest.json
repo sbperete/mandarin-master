@@ -4,8 +4,8 @@
   "description": "Master Mandarin Chinese with interactive HSK vocabulary, character stroke tracing, and pronunciation training. HSK 1-6 complete.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0f1a",
-  "theme_color": "#00BFA5",
+  "background_color": "#0f1520",
+  "theme_color": "#0f1520",
   "orientation": "portrait-primary",
   "categories": ["education", "language"],
   "icons": [

@@ -3,14 +3,18 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Mandarin Master - Learn Chinese with HSK</title>
     <meta name="description" content="Master Mandarin Chinese with interactive HSK vocabulary, character writing practice, and pronunciation training. Start free today!">
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=4">
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#00BFA5">
+    <meta name="theme-color" content="#0f1520">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Mandarin Master">
@@ -27,6 +31,7 @@
             <div class="logo-area">
                 <h1>Mandarin<br>Master</h1>
             </div>
+            <div id="streak-pill" class="streak-pill">🔥 0</div>
             <button id="mobile-settings-btn" class="mobile-settings-btn" aria-label="Settings">⚙</button>
             <div id="mobile-settings-panel" class="mobile-settings-panel"></div>
 
@@ -177,6 +182,89 @@
                     </div>
 
                     <div id="feedback" class="feedback">Press Listen to hear the word.</div>
+                </div>
+
+                <!-- Below-card content (mobile engagement zone) -->
+                <div id="below-card-content" class="below-card-content">
+
+                    <!-- Stats Row -->
+                    <div class="stats-row" id="stats-row">
+                        <div class="stat-card">
+                            <div class="stat-val v-streak" id="stat-streak">🔥 0</div>
+                            <div class="stat-lbl">Day Streak</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-val v-xp" id="stat-xp">0</div>
+                            <div class="stat-lbl">XP Today</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-val v-time" id="stat-time">0m</div>
+                            <div class="stat-lbl">Study Time</div>
+                        </div>
+                    </div>
+
+                    <!-- Word of the Day -->
+                    <div class="wod-row" id="wod-row">
+                        <div class="wod-char-mini" id="wod-char">学</div>
+                        <div class="wod-info">
+                            <div class="wod-tag">WORD OF THE DAY</div>
+                            <div class="wod-pinyin-mini" id="wod-pinyin">xue2</div>
+                            <div class="wod-meaning-mini" id="wod-meaning">to study / to learn</div>
+                        </div>
+                        <button class="wod-share" id="wod-share-btn">Share</button>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="quick-grid">
+                        <div class="quick-card qc-review" id="quick-drill-btn">
+                            <div class="quick-icon">⚡</div>
+                            <div class="quick-text">
+                                <div class="quick-title">Quick Drill</div>
+                                <div class="quick-sub">5-min flash review</div>
+                            </div>
+                        </div>
+                        <div class="quick-card qc-test" id="quick-test-btn">
+                            <div class="quick-icon">📝</div>
+                            <div class="quick-text">
+                                <div class="quick-title">Mock HSK</div>
+                                <div class="quick-sub">Exam simulation</div>
+                            </div>
+                        </div>
+                        <div class="quick-card qc-story" id="quick-story-btn">
+                            <div class="quick-icon">📖</div>
+                            <div class="quick-text">
+                                <div class="quick-title">Story Mode</div>
+                                <div class="quick-sub">Read & listen</div>
+                            </div>
+                        </div>
+                        <div class="quick-card qc-rank" id="quick-rank-btn">
+                            <div class="quick-icon">🏆</div>
+                            <div class="quick-text">
+                                <div class="quick-title">Leaderboard</div>
+                                <div class="quick-sub" id="quick-rank-sub">Rank #--</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pro Upsell -->
+                    <div class="upsell" id="upsell-card">
+                        <div class="upsell-top">
+                            <div class="pro-badge">PRO</div>
+                            <div class="upsell-price">
+                                <div class="price-main">$9.99</div>
+                                <div class="price-sub">lifetime</div>
+                            </div>
+                        </div>
+                        <div class="upsell-title">Unlock MandarinMaster Pro</div>
+                        <div class="upsell-desc">Unlock all 6 HSK levels, AI pronunciation coaching, and offline access.</div>
+                        <div class="upsell-perks-row">
+                            <div class="perk-chip">AI Coach</div>
+                            <div class="perk-chip">Offline</div>
+                            <div class="perk-chip">Analytics</div>
+                            <div class="perk-chip">HSK 1-6</div>
+                        </div>
+                        <button class="upsell-cta-btn" id="upsell-cta-btn">Upgrade to Pro — $9.99 Lifetime</button>
+                    </div>
                 </div>
             </section>
 
@@ -350,16 +438,16 @@
     </div>
 
     <!-- HSK Data Loading -->
-    <script src="data/hsk1.js?v=3"></script>
-    <script src="data/hsk2.js?v=3"></script>
-    <script src="data/hsk3.js?v=3"></script>
-    <script src="data/hsk4.js?v=3"></script>
-    <script src="data/hsk5.js?v=3"></script>
-    <script src="data/hsk6.js?v=3"></script>
+    <script src="data/hsk1.js?v=4"></script>
+    <script src="data/hsk2.js?v=4"></script>
+    <script src="data/hsk3.js?v=4"></script>
+    <script src="data/hsk4.js?v=4"></script>
+    <script src="data/hsk5.js?v=4"></script>
+    <script src="data/hsk6.js?v=4"></script>
 
     <!-- Auth: Supabase client + auth module (load order matters) -->
-    <script src="js/supabase.js?v=3"></script>
-    <script src="js/auth.js?v=3"></script>
+    <script src="js/supabase.js?v=4"></script>
+    <script src="js/auth.js?v=4"></script>
 
     <!-- Auth Modal Controller (depends on auth.js + DOM) -->
     <script>
@@ -452,7 +540,7 @@
     <script src="https://www.paypal.com/sdk/js?client-id=ASZJb0IXSS2NCfyxSVLS_0XkSgwM7LbrIm4zDU7OZMBtD_IDpoqvzjIdlM1cQBdHdUbdp2z2L6B0y5tW&currency=USD"></script>
 
     <!-- App (depends on everything above) -->
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=4"></script>
 
     <!-- Service Worker Registration -->
     <script>

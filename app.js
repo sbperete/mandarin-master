@@ -22,7 +22,12 @@ const state = {
     score: parseInt(localStorage.getItem('mm_score')) || 1250,
     failedStrokes: [],
     reviewMode: false,
-    reviewIndex: 0
+    reviewIndex: 0,
+    // Streak & stats
+    streak: parseInt(localStorage.getItem('mm_streak')) || 0,
+    lastStudyDate: localStorage.getItem('mm_lastStudyDate') || null,
+    sessionStartTime: Date.now(),
+    xpToday: parseInt(localStorage.getItem('mm_xpToday')) || 0
 };
 
 // Data References
@@ -96,7 +101,22 @@ const elements = {
     reviewPosition: document.getElementById('review-position'),
     reviewPrev: document.getElementById('review-prev'),
     reviewNext: document.getElementById('review-next'),
-    reviewExit: document.getElementById('review-exit')
+    reviewExit: document.getElementById('review-exit'),
+    // Below-card content
+    streakPill: document.getElementById('streak-pill'),
+    statStreak: document.getElementById('stat-streak'),
+    statXp: document.getElementById('stat-xp'),
+    statTime: document.getElementById('stat-time'),
+    wodChar: document.getElementById('wod-char'),
+    wodPinyin: document.getElementById('wod-pinyin'),
+    wodMeaning: document.getElementById('wod-meaning'),
+    wodShareBtn: document.getElementById('wod-share-btn'),
+    upsellCard: document.getElementById('upsell-card'),
+    upsellCtaBtn: document.getElementById('upsell-cta-btn'),
+    quickDrillBtn: document.getElementById('quick-drill-btn'),
+    quickStoryBtn: document.getElementById('quick-story-btn'),
+    quickRankBtn: document.getElementById('quick-rank-btn'),
+    quickRankSub: document.getElementById('quick-rank-sub')
 };
 
 // --- SUBSCRIPTION & PAYPAL ---
@@ -247,6 +267,53 @@ function restoreProgressFromSupabase() {
     }).catch(function(err) {
         console.warn('[Progress] Supabase restore failed:', err);
     });
+}
+
+// --- STREAK & BELOW-CARD CONTENT ---
+
+function updateStreak() {
+    var today = new Date().toISOString().split('T')[0];
+    var yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+    if (state.lastStudyDate === today) {
+        // Already counted today, no change
+    } else if (state.lastStudyDate === yesterday) {
+        state.streak++;
+    } else {
+        state.streak = 1; // Reset if gap > 1 day
+    }
+    state.lastStudyDate = today;
+    localStorage.setItem('mm_streak', state.streak);
+    localStorage.setItem('mm_lastStudyDate', today);
+}
+
+function updateBelowCardContent() {
+    // Streak
+    if (elements.streakPill) elements.streakPill.textContent = '🔥 ' + state.streak;
+    if (elements.statStreak) elements.statStreak.textContent = '🔥 ' + state.streak;
+
+    // XP
+    if (elements.statXp) elements.statXp.textContent = state.score;
+
+    // Study time
+    var mins = Math.round((Date.now() - state.sessionStartTime) / 60000);
+    if (elements.statTime) elements.statTime.textContent = mins + 'm';
+
+    // Hide upsell if premium
+    if (elements.upsellCard && state.isPremium) {
+        elements.upsellCard.style.display = 'none';
+    }
+}
+
+function loadWordOfDay() {
+    var data = getCurrentData();
+    if (!data || !data.vocab || data.vocab.length === 0) return;
+    // Deterministic "random" based on date
+    var dayIndex = new Date().getDate() % data.vocab.length;
+    var word = data.vocab[dayIndex];
+    if (elements.wodChar) elements.wodChar.textContent = word.chinese;
+    if (elements.wodPinyin) elements.wodPinyin.textContent = word.pinyin;
+    if (elements.wodMeaning) elements.wodMeaning.textContent = word.english;
 }
 
 function unlockAllLevels() {
@@ -424,6 +491,12 @@ function init() {
     setupAuthListeners();
     checkPremiumStatus();
     restoreProgressFromLocal();
+    updateStreak();
+    loadWordOfDay();
+    updateBelowCardContent();
+
+    // Update study time every 60 seconds
+    setInterval(function() { updateBelowCardContent(); }, 60000);
 
     // Daily Mode Check
     const urlParams = new URLSearchParams(window.location.search);
@@ -585,6 +658,28 @@ function setupEventListeners() {
         });
         document.addEventListener('click', function() {
             settingsPanel.classList.remove('open');
+        });
+    }
+
+    // --- BELOW-CARD QUICK ACTIONS ---
+    if (elements.quickDrillBtn) {
+        elements.quickDrillBtn.addEventListener('click', function() {
+            if (state.currentWordIndex > 0) enterReviewMode();
+        });
+    }
+    if (elements.quickStoryBtn) {
+        elements.quickStoryBtn.addEventListener('click', function() {
+            switchSection('story');
+        });
+    }
+    if (elements.quickRankBtn) {
+        elements.quickRankBtn.addEventListener('click', function() {
+            switchSection('leaderboard');
+        });
+    }
+    if (elements.upsellCtaBtn) {
+        elements.upsellCtaBtn.addEventListener('click', function() {
+            showPaywall();
         });
     }
 }
@@ -868,7 +963,7 @@ function loadWord(index) {
     const drawingColor = isLight ? '#333' : '#ecf0f1';
 
     // Create HanziWriter with guided trace (responsive size)
-    var writerSize = window.innerWidth <= 480 ? 130 : (window.innerWidth <= 768 ? 150 : 260);
+    var writerSize = window.innerWidth <= 480 ? 100 : (window.innerWidth <= 768 ? 110 : 260);
     state.writer = HanziWriter.create('character-target', word.chinese, {
         width: writerSize, height: writerSize, padding: 5,
         showOutline: true,
@@ -1062,6 +1157,7 @@ function handleNextWord() {
 
         loadWord(state.currentWordIndex);
         saveProgress();
+        updateBelowCardContent();
     } else {
         elements.feedback.textContent = "🎉 Level Vocabulary Completed! Phrases Unlocked.";
         elements.feedback.className = 'feedback success';
@@ -1071,6 +1167,7 @@ function handleNextWord() {
         switchSection('phrases');
         renderLeaderboard();
         saveProgress();
+        updateBelowCardContent();
     }
 }
 
@@ -1185,7 +1282,7 @@ function loadReviewWord() {
     var isLight = document.body.classList.contains('light-mode');
     var strokeColor = isLight ? '#333' : '#ccc';
     var drawingColor = isLight ? '#333' : '#ecf0f1';
-    var writerSize = window.innerWidth <= 480 ? 130 : (window.innerWidth <= 768 ? 150 : 260);
+    var writerSize = window.innerWidth <= 480 ? 100 : (window.innerWidth <= 768 ? 110 : 260);
     state.writer = HanziWriter.create('character-target', word.chinese, {
         width: writerSize, height: writerSize, padding: 5,
         showOutline: true, outlineColor: '#ff4444',
