@@ -1,0 +1,11 @@
+# Netlify custom headers
+# Prevent caching of HTML and Service Worker so updates are always seen
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+/*.html
+  Cache-Control: no-cache, must-revalidate

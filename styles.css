@@ -810,12 +810,6 @@ body.light-mode .sidebar {
         padding: 8px !important;
         gap: 4px;
     }
-    .learning-content-wrapper {
-        gap: 4px;
-        flex-direction: column;
-        align-items: center;
-    }
-
     /* Character display + canvas side by side on mobile */
     .learning-content-wrapper {
         flex-direction: row !important;
