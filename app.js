@@ -1237,17 +1237,18 @@ function setupEventListeners() {
             }
         });
     }
-    if (elements.quickStoryBtn) {
-        elements.quickStoryBtn.addEventListener('click', function() {
-            var storyLink = document.querySelector('.nav-links li[data-section="story"]');
-            if (storyLink && storyLink.classList.contains('locked')) {
-                elements.feedback.textContent = "💡 Complete Vocabulary & Phrases to unlock Story Mode!";
-                elements.feedback.className = 'feedback warning';
+    var quickDailyBtn = document.getElementById('quick-daily-btn');
+    if (quickDailyBtn) {
+        quickDailyBtn.addEventListener('click', function() {
+            var lastChallenge = localStorage.getItem('mm_lastDailyChallenge');
+            var today = new Date().toDateString();
+            if (lastChallenge === today) {
+                elements.feedback.textContent = "✅ Daily Challenge already completed today! Come back tomorrow.";
+                elements.feedback.className = 'feedback success';
                 document.querySelector('.main-content').scrollTop = 0;
-            } else {
-                switchSection('story');
-                renderStory();
+                return;
             }
+            startDailyChallenge();
         });
     }
     if (elements.quickRankBtn) {
@@ -1460,6 +1461,20 @@ function setupAuthListeners() {
             if (!state.micPermissionAsked) {
                 setTimeout(() => requestMicPermission(), 2000);
             }
+
+            // Offer placement test for brand new users (no progress yet)
+            if (state.currentWordIndex === 0 && !localStorage.getItem('mm_placementOffered')) {
+                localStorage.setItem('mm_placementOffered', 'true');
+                setTimeout(function() {
+                    if (state.isPremium) startPlacementTest();
+                }, 1500);
+            }
+
+            // Enable push notification reminders
+            PushReminder.promptEnable();
+
+            // Check achievements
+            Achievements.checkAll();
         } else {
             state.user = null;
             state.isLoggedIn = false;
@@ -1530,9 +1545,11 @@ function unlockSection(sectionName) {
 }
 
 function switchSection(sectionName) {
-    // Clean up mock HSK quiz and SRS review if active
+    // Clean up overlays if active
     endMockHSK();
     endSRSReview();
+    endDailyChallenge();
+    if (sectionName === 'analytics') renderAnalytics();
     state.currentSection = sectionName;
     elements.sidebarLinks.forEach(link => { link.classList.toggle('active', link.dataset.section === sectionName); });
     elements.sections.forEach(sec => sec.classList.remove('active'));
@@ -2383,6 +2400,9 @@ function renderAnalytics() {
         '</div>' +
     '</div>';
 
+    // Add achievements
+    html += renderAchievements();
+
     container.innerHTML = html;
 }
 
@@ -2412,53 +2432,465 @@ function loadThemePreference() {
 
 window.speak = speak;
 
+// --- ACHIEVEMENTS & BADGES ---
+var Achievements = {
+    definitions: [
+        { id: 'first_word', title: 'First Step', desc: 'Learn your first word', icon: '🌱', check: function() { return state.currentWordIndex >= 1; } },
+        { id: 'ten_words', title: 'Getting Started', desc: 'Learn 10 words', icon: '📗', check: function() { return state.currentWordIndex >= 10; } },
+        { id: 'twenty_five', title: 'Quarter Century', desc: 'Learn 25 words', icon: '🎯', check: function() { return state.currentWordIndex >= 25; } },
+        { id: 'fifty_words', title: 'Halfway There', desc: 'Learn 50 words', icon: '⭐', check: function() { return state.currentWordIndex >= 50; } },
+        { id: 'hundred_words', title: 'Centurion', desc: 'Learn 100 words', icon: '💯', check: function() { return state.currentWordIndex >= 100; } },
+        { id: 'vocab_complete', title: 'Level Master', desc: 'Complete a level vocabulary', icon: '🏅', check: function() { return state.progress.vocabCompleted; } },
+        { id: 'streak_3', title: 'On a Roll', desc: '3-day study streak', icon: '🔥', check: function() { return state.streak >= 3; } },
+        { id: 'streak_7', title: 'Weekly Warrior', desc: '7-day study streak', icon: '💪', check: function() { return state.streak >= 7; } },
+        { id: 'streak_30', title: 'Monthly Master', desc: '30-day study streak', icon: '🏆', check: function() { return state.streak >= 30; } },
+        { id: 'xp_1000', title: 'XP Hunter', desc: 'Earn 1,000 XP', icon: '✨', check: function() { return state.score >= 1000; } },
+        { id: 'xp_5000', title: 'XP Champion', desc: 'Earn 5,000 XP', icon: '💎', check: function() { return state.score >= 5000; } },
+        { id: 'srs_first', title: 'Memory Keeper', desc: 'Complete your first SRS review', icon: '🧠', check: function() { var d = SRS.getData(state.currentLevel); for (var k in d) { if (d[k].reviewCount > 0) return true; } return false; } },
+        { id: 'srs_master_5', title: 'Deep Memory', desc: 'Master 5 words in SRS', icon: '🎓', check: function() { var d = SRS.getData(state.currentLevel); var c = 0; for (var k in d) { if (d[k].box >= 4) c++; } return c >= 5; } },
+        { id: 'phrases_done', title: 'Phrase Finder', desc: 'Complete level phrases', icon: '💬', check: function() { return state.progress.phrasesCompleted; } },
+        { id: 'story_done', title: 'Storyteller', desc: 'Complete level story', icon: '📖', check: function() { return state.progress.storyCompleted; } },
+        { id: 'hsk2', title: 'Level Up', desc: 'Reach HSK 2', icon: '🚀', check: function() { return state.currentLevel >= 2; } },
+        { id: 'hsk4', title: 'Intermediate', desc: 'Reach HSK 4', icon: '🌟', check: function() { return state.currentLevel >= 4; } },
+        { id: 'hsk6', title: 'Near Native', desc: 'Reach HSK 6', icon: '👑', check: function() { return state.currentLevel >= 6; } },
+    ],
+
+    getUnlocked: function() {
+        try { return JSON.parse(localStorage.getItem('mm_achievements')) || []; } catch(e) { return []; }
+    },
+
+    save: function(unlocked) {
+        localStorage.setItem('mm_achievements', JSON.stringify(unlocked));
+    },
+
+    checkAll: function() {
+        var unlocked = this.getUnlocked();
+        var newlyUnlocked = [];
+        for (var i = 0; i < this.definitions.length; i++) {
+            var a = this.definitions[i];
+            if (unlocked.indexOf(a.id) === -1 && a.check()) {
+                unlocked.push(a.id);
+                newlyUnlocked.push(a);
+            }
+        }
+        if (newlyUnlocked.length > 0) {
+            this.save(unlocked);
+            // Show toast for each new achievement
+            for (var j = 0; j < newlyUnlocked.length; j++) {
+                this.showToast(newlyUnlocked[j], j * 2500);
+            }
+        }
+        return newlyUnlocked;
+    },
+
+    showToast: function(achievement, delay) {
+        setTimeout(function() {
+            var toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:14px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.4);animation:slideDown 0.4s ease;max-width:320px;';
+            toast.innerHTML = '<span style="font-size:32px;">' + achievement.icon + '</span>' +
+                '<div><div style="font-size:11px;color:var(--teal);font-weight:600;text-transform:uppercase;">Achievement Unlocked!</div>' +
+                '<div style="font-size:14px;font-weight:600;color:var(--text);">' + achievement.title + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">' + achievement.desc + '</div></div>';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; }, 3000);
+            setTimeout(function() { toast.remove(); }, 3500);
+        }, delay);
+    }
+};
+
+// Check achievements after progress changes
+var _origSaveProgress = saveProgress;
+saveProgress = function() {
+    _origSaveProgress();
+    Achievements.checkAll();
+};
+
+function renderAchievements() {
+    var unlocked = Achievements.getUnlocked();
+    var html = '<div class="card" style="margin-bottom:12px;">' +
+        '<h3 style="font-size:16px;color:var(--text);margin-bottom:4px;">Achievements</h3>' +
+        '<p style="font-size:12px;color:var(--text-2);margin-bottom:16px;">' + unlocked.length + ' / ' + Achievements.definitions.length + ' unlocked</p>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">';
+
+    for (var i = 0; i < Achievements.definitions.length; i++) {
+        var a = Achievements.definitions[i];
+        var isUnlocked = unlocked.indexOf(a.id) !== -1;
+        html += '<div style="background:' + (isUnlocked ? 'var(--surface)' : 'rgba(255,255,255,0.02)') + ';border:1px solid ' + (isUnlocked ? 'var(--teal)' : 'var(--border)') + ';border-radius:10px;padding:12px;text-align:center;' + (isUnlocked ? '' : 'opacity:0.4;') + '">' +
+            '<div style="font-size:28px;margin-bottom:4px;">' + (isUnlocked ? a.icon : '🔒') + '</div>' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text);">' + a.title + '</div>' +
+            '<div style="font-size:10px;color:var(--text-2);margin-top:2px;">' + a.desc + '</div>' +
+        '</div>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
 // --- DAILY CHALLENGE MODE ---
-async function startDailyMode() {
-    console.log("🎬 Starting Daily Mode...");
-    const data = levelData[1]; // Default to HSK 1
-    if (!data) return;
+function startDailyChallenge() {
+    var data = getCurrentData();
+    if (!data || !data.vocab) return;
 
-    // Select 3 Words, 3 Phrases, 1 Story Line
-    const words = data.vocab.slice(0, 3);
-    const phrases = data.phrases ? data.phrases.slice(0, 3) : [];
-    const story = data.story ? data.story.content.slice(0, 1) : [];
+    var learned = state.currentWordIndex;
+    if (learned < 5) {
+        elements.feedback.textContent = "💡 Learn at least 5 words to unlock Daily Challenge!";
+        elements.feedback.className = 'feedback warning';
+        return;
+    }
 
-    elements.vocabSection.classList.add('active');
+    // Pick 5 random words from learned pool + 5 from upcoming (if available)
+    var pool = [];
+    for (var i = 0; i < Math.min(learned, data.vocab.length); i++) pool.push(data.vocab[i]);
+    for (var i = pool.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    var challengeWords = pool.slice(0, Math.min(5, pool.length));
 
-    // Auto-Play Words
-    for (let i = 0; i < words.length; i++) {
-        loadWord(i);
-        elements.feedback.textContent = `Daily Word ${i + 1}/3`;
-        speak(words[i].chinese);
-        await new Promise(r => setTimeout(r, 4000));
+    var challengeIndex = 0;
+    var correct = 0;
+    var total = challengeWords.length;
+    var startTime = Date.now();
+    var timeLimit = 60000; // 60 seconds
 
-        if (state.writer) {
-            state.writer.animateCharacter();
-            await new Promise(r => setTimeout(r, 3000));
+    function showChallengeQ() {
+        var elapsed = Date.now() - startTime;
+        if (elapsed >= timeLimit || challengeIndex >= total) {
+            // Challenge complete
+            var timeTaken = Math.round((Date.now() - startTime) / 1000);
+            var bonus = correct === total ? 50 : 0; // Perfect bonus
+            var xpEarned = correct * 30 + bonus;
+            var html = '<div style="text-align:center;padding:30px 20px;">' +
+                '<h2 style="font-size:22px;color:var(--teal);margin-bottom:8px;">Daily Challenge Complete!</h2>' +
+                '<p style="font-size:42px;margin:12px 0;">' + (correct === total ? '🏆' : correct >= 3 ? '⭐' : '💪') + '</p>' +
+                '<p style="font-size:18px;color:var(--text);margin-bottom:4px;">' + correct + ' / ' + total + ' correct</p>' +
+                '<p style="font-size:14px;color:var(--text-2);margin-bottom:4px;">' + timeTaken + 's time</p>' +
+                (bonus > 0 ? '<p style="font-size:13px;color:var(--teal);margin-bottom:12px;">+50 Perfect Bonus!</p>' : '') +
+                '<p style="font-size:16px;color:var(--teal);font-weight:600;margin-bottom:16px;">+' + xpEarned + ' XP</p>' +
+                '<button onclick="switchSection(\'vocab\')" style="background:var(--teal);color:#0f1520;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>' +
+                '</div>';
+            var container = document.getElementById('daily-challenge-container');
+            if (container) container.innerHTML = html;
+            state.score += xpEarned;
+            state.xpToday += xpEarned;
+            localStorage.setItem('mm_lastDailyChallenge', new Date().toDateString());
+            saveProgress();
+            updateBelowCardContent();
+            return;
+        }
+
+        var word = challengeWords[challengeIndex];
+        var remaining = Math.max(0, Math.round((timeLimit - elapsed) / 1000));
+
+        // Generate options
+        var wrongAnswers = [];
+        var allVocab = data.vocab.slice();
+        for (var i = allVocab.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = allVocab[i]; allVocab[i] = allVocab[j]; allVocab[j] = tmp;
+        }
+        for (var i = 0; i < allVocab.length && wrongAnswers.length < 3; i++) {
+            if (allVocab[i].english !== word.english) wrongAnswers.push(allVocab[i].english);
+        }
+        var options = [word.english].concat(wrongAnswers);
+        for (var i = options.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = options[i]; options[i] = options[j]; options[j] = tmp;
+        }
+
+        var qHTML = '<div style="text-align:center;padding:20px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+                '<span style="font-size:12px;color:var(--text-3);">' + (challengeIndex + 1) + ' / ' + total + '</span>' +
+                '<span style="font-size:14px;font-weight:600;color:' + (remaining <= 10 ? 'var(--rose)' : 'var(--teal)') + ';">⏱ ' + remaining + 's</span>' +
+            '</div>' +
+            '<p style="font-family:\'Noto Serif SC\',serif;font-size:48px;font-weight:700;color:var(--text);margin:15px 0;">' + word.chinese + '</p>' +
+            '<p style="font-size:16px;color:var(--teal);margin-bottom:18px;">' + word.pinyin + '</p>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:400px;margin:0 auto;">';
+        for (var i = 0; i < options.length; i++) {
+            qHTML += '<button class="daily-option-btn" data-answer="' + options[i].replace(/"/g, '&quot;') + '" ' +
+                'style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;color:var(--text);cursor:pointer;transition:all 0.2s;">' +
+                options[i] + '</button>';
+        }
+        qHTML += '</div></div>';
+
+        var section = document.getElementById('vocab-section');
+        var container = document.getElementById('daily-challenge-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'daily-challenge-container';
+            section.appendChild(container);
+        }
+        container.innerHTML = qHTML;
+
+        // Hide learning card
+        var learningCard = section.querySelector('.learning-card');
+        var belowCard = section.querySelector('.below-card-content');
+        var sectionHeader = section.querySelector('.section-header');
+        if (learningCard) learningCard.style.display = 'none';
+        if (belowCard) belowCard.style.display = 'none';
+        if (sectionHeader) sectionHeader.style.display = 'none';
+
+        var btns = container.querySelectorAll('.daily-option-btn');
+        btns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var isCorrect = btn.getAttribute('data-answer') === word.english;
+                if (isCorrect) {
+                    btn.style.background = 'rgba(0,212,170,0.2)';
+                    btn.style.borderColor = 'var(--teal)';
+                    correct++;
+                } else {
+                    btn.style.background = 'rgba(251,113,133,0.2)';
+                    btn.style.borderColor = 'var(--rose)';
+                    btns.forEach(function(b) {
+                        if (b.getAttribute('data-answer') === word.english) {
+                            b.style.background = 'rgba(0,212,170,0.2)';
+                            b.style.borderColor = 'var(--teal)';
+                        }
+                    });
+                }
+                btns.forEach(function(b) { b.style.pointerEvents = 'none'; });
+                challengeIndex++;
+                setTimeout(showChallengeQ, 800);
+            });
+        });
+
+        // Update timer
+        var timerInterval = setInterval(function() {
+            var el = container.querySelector('[style*="⏱"]');
+            if (!el || challengeIndex > total) { clearInterval(timerInterval); return; }
+            var r = Math.max(0, Math.round((timeLimit - (Date.now() - startTime)) / 1000));
+            // Find and update timer span
+            var spans = container.querySelectorAll('span');
+            for (var s of spans) {
+                if (s.textContent.indexOf('⏱') !== -1) {
+                    s.textContent = '⏱ ' + r + 's';
+                    s.style.color = r <= 10 ? 'var(--rose)' : 'var(--teal)';
+                    break;
+                }
+            }
+            if (r <= 0) { clearInterval(timerInterval); showChallengeQ(); }
+        }, 1000);
+    }
+
+    switchSection('vocab');
+    document.querySelector('.main-content').scrollTop = 0;
+    showChallengeQ();
+}
+
+function endDailyChallenge() {
+    var section = document.getElementById('vocab-section');
+    var container = document.getElementById('daily-challenge-container');
+    if (container) container.remove();
+    var learningCard = section.querySelector('.learning-card');
+    var belowCard = section.querySelector('.below-card-content');
+    var sectionHeader = section.querySelector('.section-header');
+    if (learningCard) learningCard.style.display = '';
+    if (belowCard) belowCard.style.display = '';
+    if (sectionHeader) sectionHeader.style.display = '';
+}
+
+// --- PLACEMENT TEST ---
+function startPlacementTest() {
+    // Sample 3 words from each HSK level (1-6) = 18 questions max
+    var questions = [];
+    for (var level = 1; level <= 6; level++) {
+        var data = levelData[level];
+        if (!data || !data.vocab) continue;
+        var pool = data.vocab.slice();
+        // Shuffle
+        for (var i = pool.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+        }
+        var sample = pool.slice(0, 3);
+        for (var s = 0; s < sample.length; s++) {
+            questions.push({ word: sample[s], level: level, allVocab: data.vocab });
         }
     }
 
-    // Phrases
-    switchSection('phrases');
-    elements.phrasesList.innerHTML = phrases.map(p => `
-        <div class="phrase-item" style="font-size:1.5em; text-align:center;">
-            <div style="width:100%"><h3>${p.chinese}</h3><p>${p.english}</p></div>
-        </div>`).join('');
+    var qIndex = 0;
+    var levelScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
 
-    for (let p of phrases) {
-        speak(p.chinese);
-        await new Promise(r => setTimeout(r, 3000));
+    function showPlacementQ() {
+        if (qIndex >= questions.length) {
+            // Determine recommended level
+            var recommendedLevel = 1;
+            for (var lv = 6; lv >= 1; lv--) {
+                if (levelScores[lv] >= 2) { // Got 2+ out of 3 correct
+                    recommendedLevel = Math.min(lv + 1, 6);
+                    break;
+                }
+            }
+
+            var resultHTML = '<div style="text-align:center;padding:30px 20px;">' +
+                '<h2 style="font-size:22px;color:var(--teal);margin-bottom:8px;">Placement Results</h2>' +
+                '<p style="font-size:48px;margin:15px 0;">📊</p>' +
+                '<p style="font-size:16px;color:var(--text);margin-bottom:12px;">Based on your answers:</p>' +
+                '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:300px;margin:0 auto 20px;">';
+            for (var lv = 1; lv <= 6; lv++) {
+                var pct = Math.round((levelScores[lv] / 3) * 100);
+                var color = pct >= 67 ? 'var(--teal)' : pct >= 33 ? '#fbbf24' : 'var(--rose)';
+                resultHTML += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;">' +
+                    '<div style="font-size:11px;color:var(--text-2);">HSK ' + lv + '</div>' +
+                    '<div style="font-size:16px;font-weight:700;color:' + color + ';">' + levelScores[lv] + '/3</div></div>';
+            }
+            resultHTML += '</div>' +
+                '<p style="font-size:18px;font-weight:700;color:var(--teal);margin-bottom:4px;">Recommended: HSK ' + recommendedLevel + '</p>' +
+                '<p style="font-size:12px;color:var(--text-2);margin-bottom:20px;">You can always change your level later</p>' +
+                '<button id="placement-apply-btn" style="background:var(--teal);color:#0f1520;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;margin-right:8px;">Start at HSK ' + recommendedLevel + '</button>' +
+                '<button id="placement-skip-btn" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 24px;font-size:14px;color:var(--text);cursor:pointer;">Start at HSK 1</button>' +
+                '</div>';
+
+            var overlay = document.getElementById('placement-overlay');
+            overlay.innerHTML = resultHTML;
+
+            document.getElementById('placement-apply-btn').addEventListener('click', function() {
+                overlay.remove();
+                if (recommendedLevel > 1 && state.isPremium) {
+                    loadLevel(recommendedLevel);
+                } else if (recommendedLevel > 1) {
+                    showPaywall();
+                } else {
+                    loadLevel(1);
+                }
+            });
+            document.getElementById('placement-skip-btn').addEventListener('click', function() {
+                overlay.remove();
+                loadLevel(1);
+            });
+            return;
+        }
+
+        var q = questions[qIndex];
+        var word = q.word;
+
+        // Generate 3 wrong options from same level
+        var wrongAnswers = [];
+        for (var i = 0; i < q.allVocab.length && wrongAnswers.length < 3; i++) {
+            if (q.allVocab[i].english !== word.english) wrongAnswers.push(q.allVocab[i].english);
+        }
+        var options = [word.english].concat(wrongAnswers.slice(0, 3));
+        for (var i = options.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = options[i]; options[i] = options[j]; options[j] = tmp;
+        }
+
+        var overlay = document.getElementById('placement-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'placement-overlay';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:10001;overflow-y:auto;display:flex;align-items:center;justify-content:center;';
+            document.body.appendChild(overlay);
+        }
+
+        var pctDone = Math.round((qIndex / questions.length) * 100);
+        overlay.innerHTML = '<div style="max-width:440px;width:100%;padding:24px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+                '<span style="font-size:12px;color:var(--text-3);">HSK ' + q.level + ' · Question ' + (qIndex + 1) + '/' + questions.length + '</span>' +
+                '<button id="placement-skip-all" style="font-size:12px;color:var(--text-3);background:none;border:none;cursor:pointer;">Skip Test</button>' +
+            '</div>' +
+            '<div style="background:var(--surface);height:4px;border-radius:2px;margin-bottom:20px;"><div style="background:var(--teal);height:100%;width:' + pctDone + '%;border-radius:2px;transition:width 0.3s;"></div></div>' +
+            '<p style="font-family:\'Noto Serif SC\',serif;font-size:48px;font-weight:700;color:var(--text);text-align:center;margin:20px 0;">' + word.chinese + '</p>' +
+            '<p style="font-size:16px;color:var(--teal);text-align:center;margin-bottom:20px;">' + word.pinyin + '</p>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+            options.map(function(opt) {
+                return '<button class="placement-btn" data-answer="' + opt.replace(/"/g, '&quot;') + '" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:13px;color:var(--text);cursor:pointer;transition:all 0.2s;">' + opt + '</button>';
+            }).join('') +
+            '</div></div>';
+
+        overlay.querySelector('#placement-skip-all').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        overlay.querySelectorAll('.placement-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var isCorrect = btn.getAttribute('data-answer') === word.english;
+                if (isCorrect) {
+                    btn.style.background = 'rgba(0,212,170,0.2)';
+                    btn.style.borderColor = 'var(--teal)';
+                    levelScores[q.level]++;
+                } else {
+                    btn.style.background = 'rgba(251,113,133,0.2)';
+                    btn.style.borderColor = 'var(--rose)';
+                }
+                overlay.querySelectorAll('.placement-btn').forEach(function(b) { b.style.pointerEvents = 'none'; });
+                qIndex++;
+                setTimeout(showPlacementQ, 700);
+            });
+        });
     }
 
-    // Story
-    switchSection('story');
-    elements.storyContent.innerHTML = story.map(line => `
-         <div class="story-line" style="font-size:2em;">${line.chinese}<br><span style="font-size:0.5em">${line.english}</span></div>`).join('');
-    speak(story[0].chinese);
-    await new Promise(r => setTimeout(r, 5000));
-
-    window.dailySetComplete = true;
-    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#00BFA5;font-size:3em;'><h1>See you tomorrow! 👋</h1></div>";
+    showPlacementQ();
 }
+
+// --- PUSH NOTIFICATION REMINDERS ---
+var PushReminder = {
+    isSupported: function() {
+        return 'Notification' in window && 'serviceWorker' in navigator;
+    },
+
+    getPermission: function() {
+        if (!this.isSupported()) return Promise.resolve('unsupported');
+        return Notification.requestPermission();
+    },
+
+    schedule: function() {
+        if (!this.isSupported() || Notification.permission !== 'granted') return;
+
+        // Schedule a local notification reminder using setTimeout
+        // Check if user hasn't studied today
+        var lastStudy = localStorage.getItem('mm_lastStudyDate');
+        var today = new Date().toDateString();
+
+        if (lastStudy === today) return; // Already studied today
+
+        // Show reminder after 2 hours of inactivity
+        var reminderDelay = 2 * 60 * 60 * 1000; // 2 hours
+        setTimeout(function() {
+            if (document.hidden && Notification.permission === 'granted') {
+                var dueCount = SRS.getDueCount(state.currentLevel);
+                var body = dueCount > 0
+                    ? dueCount + ' words are due for review! Keep your streak alive.'
+                    : 'Time for your daily Chinese practice! Keep your streak at ' + state.streak + ' days.';
+                new Notification('Mandarin Master 🀄', {
+                    body: body,
+                    icon: '/icons/icon-192.png',
+                    badge: '/icons/icon-72.png',
+                    tag: 'study-reminder'
+                });
+            }
+        }, reminderDelay);
+    },
+
+    promptEnable: function() {
+        if (!this.isSupported()) return;
+        if (Notification.permission === 'granted') { this.schedule(); return; }
+        if (Notification.permission === 'denied') return;
+        // Only prompt once per session
+        if (sessionStorage.getItem('mm_notif_prompted')) return;
+        sessionStorage.setItem('mm_notif_prompted', 'true');
+
+        var self = this;
+        // Show a custom prompt after 30 seconds of use
+        setTimeout(function() {
+            if (Notification.permission !== 'default') return;
+            var toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;text-align:center;';
+            toast.innerHTML = '<p style="font-size:14px;color:var(--text);margin-bottom:12px;">🔔 Get daily study reminders?</p>' +
+                '<div style="display:flex;gap:8px;justify-content:center;">' +
+                '<button id="notif-yes" style="background:var(--teal);color:#0f1520;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;">Enable</button>' +
+                '<button id="notif-no" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:13px;color:var(--text);cursor:pointer;">Not now</button></div>';
+            document.body.appendChild(toast);
+            document.getElementById('notif-yes').addEventListener('click', function() {
+                self.getPermission().then(function(perm) {
+                    if (perm === 'granted') self.schedule();
+                });
+                toast.remove();
+            });
+            document.getElementById('notif-no').addEventListener('click', function() { toast.remove(); });
+            // Auto-dismiss after 15 seconds
+            setTimeout(function() { if (toast.parentNode) toast.remove(); }, 15000);
+        }, 30000);
+    }
+};
 
 init();
