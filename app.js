@@ -966,12 +966,37 @@ function setupEventListeners() {
     // --- BELOW-CARD QUICK ACTIONS ---
     if (elements.quickDrillBtn) {
         elements.quickDrillBtn.addEventListener('click', function() {
-            if (state.currentWordIndex > 0) enterReviewMode();
+            if (state.currentWordIndex > 0) {
+                enterReviewMode();
+            } else {
+                elements.feedback.textContent = "💡 Study at least 1 word first to unlock Quick Drill!";
+                elements.feedback.className = 'feedback warning';
+            }
+        });
+    }
+    var quickTestBtn = document.getElementById('quick-test-btn');
+    if (quickTestBtn) {
+        quickTestBtn.addEventListener('click', function() {
+            if (state.currentWordIndex >= 5) {
+                startMockHSK();
+            } else {
+                elements.feedback.textContent = "💡 Study at least 5 words to unlock Mock HSK!";
+                elements.feedback.className = 'feedback warning';
+                document.querySelector('.main-content').scrollTop = 0;
+            }
         });
     }
     if (elements.quickStoryBtn) {
         elements.quickStoryBtn.addEventListener('click', function() {
-            switchSection('story');
+            var storyLink = document.querySelector('.nav-links li[data-section="story"]');
+            if (storyLink && storyLink.classList.contains('locked')) {
+                elements.feedback.textContent = "💡 Complete Vocabulary & Phrases to unlock Story Mode!";
+                elements.feedback.className = 'feedback warning';
+                document.querySelector('.main-content').scrollTop = 0;
+            } else {
+                switchSection('story');
+                renderStory();
+            }
         });
     }
     if (elements.quickRankBtn) {
@@ -1230,6 +1255,8 @@ function unlockSection(sectionName) {
 }
 
 function switchSection(sectionName) {
+    // Clean up mock HSK quiz if active
+    endMockHSK();
     state.currentSection = sectionName;
     elements.sidebarLinks.forEach(link => { link.classList.toggle('active', link.dataset.section === sectionName); });
     elements.sections.forEach(sec => sec.classList.remove('active'));
@@ -1552,6 +1579,156 @@ function handleShare() {
         if (captureTarget.contains(watermark)) captureTarget.removeChild(watermark);
         captureTarget.style.position = originalPosition;
     });
+}
+
+// --- MOCK HSK QUIZ ---
+
+function startMockHSK() {
+    var data = getCurrentData();
+    if (!data || !data.vocab || state.currentWordIndex < 5) return;
+
+    // Pick 10 random words from learned words (or fewer if not enough)
+    var pool = [];
+    for (var i = 0; i < state.currentWordIndex; i++) {
+        if (data.vocab[i]) pool.push(data.vocab[i]);
+    }
+    // Shuffle
+    for (var i = pool.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    var quizWords = pool.slice(0, Math.min(10, pool.length));
+
+    var quizIndex = 0;
+    var correct = 0;
+    var total = quizWords.length;
+
+    function showQuestion() {
+        if (quizIndex >= total) {
+            // Quiz complete — show results
+            var pct = Math.round((correct / total) * 100);
+            var grade = pct >= 80 ? '🎉 Excellent!' : (pct >= 60 ? '👍 Good effort!' : '💪 Keep practicing!');
+            var resultHTML = '<div style="text-align:center;padding:30px 20px;">' +
+                '<h2 style="font-size:24px;color:var(--teal);margin-bottom:10px;">Mock HSK Results</h2>' +
+                '<p style="font-size:48px;margin:15px 0;">' + grade + '</p>' +
+                '<p style="font-size:20px;color:var(--text);margin-bottom:5px;">' + correct + ' / ' + total + ' correct</p>' +
+                '<p style="font-size:16px;color:var(--text-2);margin-bottom:20px;">' + pct + '% accuracy</p>' +
+                '<button onclick="switchSection(\'vocab\')" style="background:var(--teal);color:#0f1520;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">Back to Vocabulary</button>' +
+                '</div>';
+            var section = document.getElementById('vocab-section');
+            var quizContainer = document.getElementById('mock-hsk-container');
+            if (quizContainer) quizContainer.innerHTML = resultHTML;
+            else {
+                var div = document.createElement('div');
+                div.id = 'mock-hsk-container';
+                div.innerHTML = resultHTML;
+                section.appendChild(div);
+            }
+            state.score += correct * 25;
+            state.xpToday += correct * 25;
+            saveProgress();
+            updateBelowCardContent();
+            return;
+        }
+
+        var word = quizWords[quizIndex];
+        // Generate 3 wrong answers from the pool
+        var wrongAnswers = [];
+        var allVocab = data.vocab.slice();
+        for (var i = allVocab.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = allVocab[i]; allVocab[i] = allVocab[j]; allVocab[j] = tmp;
+        }
+        for (var i = 0; i < allVocab.length && wrongAnswers.length < 3; i++) {
+            if (allVocab[i].english !== word.english) wrongAnswers.push(allVocab[i].english);
+        }
+
+        // Build options array and shuffle
+        var options = [word.english].concat(wrongAnswers);
+        for (var i = options.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = options[i]; options[i] = options[j]; options[j] = tmp;
+        }
+
+        var qHTML = '<div style="text-align:center;padding:20px;">' +
+            '<p style="font-size:12px;color:var(--text-3);margin-bottom:8px;">Question ' + (quizIndex + 1) + ' of ' + total + '</p>' +
+            '<p style="font-family:\'Noto Serif SC\',serif;font-size:48px;font-weight:700;color:var(--text);margin:15px 0;">' + word.chinese + '</p>' +
+            '<p style="font-size:16px;color:var(--teal);margin-bottom:20px;">' + word.pinyin + '</p>' +
+            '<div id="quiz-options" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:400px;margin:0 auto;">';
+
+        for (var i = 0; i < options.length; i++) {
+            qHTML += '<button class="quiz-option-btn" data-answer="' + options[i].replace(/"/g, '&quot;') + '" ' +
+                'style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;color:var(--text);cursor:pointer;transition:all 0.2s;">' +
+                options[i] + '</button>';
+        }
+        qHTML += '</div></div>';
+
+        var section = document.getElementById('vocab-section');
+        var quizContainer = document.getElementById('mock-hsk-container');
+        if (!quizContainer) {
+            quizContainer = document.createElement('div');
+            quizContainer.id = 'mock-hsk-container';
+            section.appendChild(quizContainer);
+        }
+        quizContainer.innerHTML = qHTML;
+
+        // Hide learning card and below-card content during quiz
+        var learningCard = section.querySelector('.learning-card');
+        var belowCard = section.querySelector('.below-card-content');
+        var sectionHeader = section.querySelector('.section-header');
+        if (learningCard) learningCard.style.display = 'none';
+        if (belowCard) belowCard.style.display = 'none';
+        if (sectionHeader) sectionHeader.style.display = 'none';
+
+        // Wire up option buttons
+        var btns = quizContainer.querySelectorAll('.quiz-option-btn');
+        btns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var answer = btn.getAttribute('data-answer');
+                var isCorrect = answer === word.english;
+                if (isCorrect) {
+                    btn.style.background = 'rgba(0,212,170,0.2)';
+                    btn.style.borderColor = 'var(--teal)';
+                    btn.style.color = 'var(--teal)';
+                    correct++;
+                } else {
+                    btn.style.background = 'rgba(251,113,133,0.2)';
+                    btn.style.borderColor = 'var(--rose)';
+                    btn.style.color = 'var(--rose)';
+                    // Highlight correct answer
+                    btns.forEach(function(b) {
+                        if (b.getAttribute('data-answer') === word.english) {
+                            b.style.background = 'rgba(0,212,170,0.2)';
+                            b.style.borderColor = 'var(--teal)';
+                            b.style.color = 'var(--teal)';
+                        }
+                    });
+                }
+                // Disable all buttons
+                btns.forEach(function(b) { b.style.pointerEvents = 'none'; });
+                // Next question after delay
+                quizIndex++;
+                setTimeout(showQuestion, 1000);
+            });
+        });
+    }
+
+    // Switch to vocab section and scroll to top
+    switchSection('vocab');
+    document.querySelector('.main-content').scrollTop = 0;
+    showQuestion();
+}
+
+function endMockHSK() {
+    var section = document.getElementById('vocab-section');
+    var quizContainer = document.getElementById('mock-hsk-container');
+    if (quizContainer) quizContainer.remove();
+    var learningCard = section.querySelector('.learning-card');
+    var belowCard = section.querySelector('.below-card-content');
+    var sectionHeader = section.querySelector('.section-header');
+    if (learningCard) learningCard.style.display = '';
+    if (belowCard) belowCard.style.display = '';
+    if (sectionHeader) sectionHeader.style.display = '';
 }
 
 // --- REVIEW MODE ---
