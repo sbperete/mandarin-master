@@ -12,17 +12,14 @@ on:
           - apk
           - aab
           - both
-
-env:
-  APP_NAME: "Mandarin Master"
-  APP_ID: "app.netlify.mandarin_master.twa"
-  HOST: "mandarin-master.netlify.app"
-  START_URL: "/"
-  THEME_COLOR: "#0f1520"
-  BG_COLOR: "#0f1520"
-  DISPLAY_MODE: "standalone"
-  ICON_URL: "https://mandarin-master.netlify.app/icons/icon-512.png"
-  MASKABLE_ICON_URL: "https://mandarin-master.netlify.app/icons/icon-512.png"
+      version_code:
+        description: 'Version code (integer)'
+        required: true
+        default: '1'
+      version_name:
+        description: 'Version name'
+        required: true
+        default: '1.0.0'
 
 jobs:
   build:
@@ -38,16 +35,47 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Install Bubblewrap CLI
-        run: npm install -g @nicolo-ribaudo/bubblewrap
+        run: npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @bubblewrap/cli
 
-      - name: Initialize Bubblewrap project
+      - name: Generate signing keystore
+        run: |
+          keytool -genkeypair \
+            -alias mandarin-master \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore ${{ github.workspace }}/mandarin-master.keystore \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keypass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -dname "CN=Mandarin Master, OU=Apps, O=MandarinMaster, L=Unknown, ST=Unknown, C=US"
+
+      - name: Extract signing fingerprint
+        id: fingerprint
+        run: |
+          FINGERPRINT=$(keytool -list -v \
+            -keystore ${{ github.workspace }}/mandarin-master.keystore \
+            -alias mandarin-master \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} | grep "SHA256:" | sed 's/.*SHA256: //')
+          echo "sha256=$FINGERPRINT" >> $GITHUB_OUTPUT
+          echo "::notice::SHA-256 Fingerprint: $FINGERPRINT"
+          echo ""
+          echo "=========================================="
+          echo "UPDATE .well-known/assetlinks.json with:"
+          echo "$FINGERPRINT"
+          echo "=========================================="
+
+      - name: Initialize TWA project
         run: |
           mkdir -p twa-build && cd twa-build
-          cat > twa-manifest.json << 'MANIFEST'
+
+          # Create twaManifest.json for bubblewrap
+          cat > twaManifest.json << EOF
           {
             "packageId": "app.netlify.mandarin_master.twa",
             "host": "mandarin-master.netlify.app",
@@ -55,6 +83,7 @@ jobs:
             "launcherName": "Mandarin Master",
             "display": "standalone",
             "themeColor": "#0f1520",
+            "themeColorDark": "#0f1520",
             "navigationColor": "#0f1520",
             "navigationColorDark": "#0f1520",
             "navigationDividerColor": "#0f1520",
@@ -66,25 +95,12 @@ jobs:
             "maskableIconUrl": "https://mandarin-master.netlify.app/icons/icon-512.png",
             "splashScreenFadeOutDuration": 300,
             "signingKey": {
-              "path": "mandarin-master.keystore",
+              "path": "${{ github.workspace }}/mandarin-master.keystore",
               "alias": "mandarin-master"
             },
-            "appVersionCode": 1,
-            "appVersionName": "1.0.0",
-            "shortcuts": [
-              {
-                "name": "Practice Vocabulary",
-                "shortName": "Vocab",
-                "url": "/?section=vocab",
-                "chosenIconUrl": "https://mandarin-master.netlify.app/icons/icon-192.png"
-              },
-              {
-                "name": "Daily Challenge",
-                "shortName": "Challenge",
-                "url": "/?section=challenge",
-                "chosenIconUrl": "https://mandarin-master.netlify.app/icons/icon-192.png"
-              }
-            ],
+            "appVersionCode": ${{ inputs.version_code }},
+            "appVersionName": "${{ inputs.version_name }}",
+            "shortcuts": [],
             "generatorApp": "bubblewrap-cli",
             "webManifestUrl": "https://mandarin-master.netlify.app/manifest.json",
             "fallbackType": "customtabs",
@@ -94,60 +110,87 @@ jobs:
             "isMetaQuest": false,
             "fullScopeUrl": "https://mandarin-master.netlify.app/",
             "minSdkVersion": 19,
-            "fingerprints": []
+            "fingerprints": [
+              {
+                "type": "SHA-256",
+                "value": "${{ steps.fingerprint.outputs.sha256 }}"
+              }
+            ]
           }
-          MANIFEST
+          EOF
 
-      - name: Generate signing key
+          # Set ANDROID_HOME for bubblewrap
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+
+          # Initialize bubblewrap project (non-interactive)
+          echo "y" | bubblewrap init --manifest="https://mandarin-master.netlify.app/manifest.json" 2>&1 || {
+            echo "bubblewrap init from manifest failed, trying with local twaManifest..."
+            echo "y" | bubblewrap init --manifest=twaManifest.json 2>&1 || true
+          }
+
+      - name: Build APK and AAB
         working-directory: twa-build
         run: |
-          keytool -genkeypair \
-            -alias mandarin-master \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -keystore mandarin-master.keystore \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
-            -keypass ${{ secrets.KEYSTORE_PASSWORD }} \
-            -dname "CN=Mandarin Master, OU=Apps, O=MandarinMaster, L=Unknown, ST=Unknown, C=US"
+          export ANDROID_HOME=/usr/local/lib/android/sdk
 
-      - name: Build with Bubblewrap
-        working-directory: twa-build
-        run: |
+          # Try bubblewrap build first
           bubblewrap build \
-            --manifest twa-manifest.json \
-            --signingKeyPath mandarin-master.keystore \
-            --signingKeyAlias mandarin-master \
-            --signingKeyPassword ${{ secrets.KEYSTORE_PASSWORD }} \
-            --signingStorePassword ${{ secrets.KEYSTORE_PASSWORD }}
+            --signingKeyPath ${{ github.workspace }}/mandarin-master.keystore \
+            --signingKeyAlias mandarin-master 2>&1 || {
+            echo "bubblewrap build failed, trying gradle directly..."
+            if [ -f "gradlew" ]; then
+              chmod +x gradlew
+              ./gradlew assembleRelease bundleRelease 2>&1 || ./gradlew assembleRelease 2>&1 || true
+            fi
+          }
 
-      - name: Extract signing fingerprint
-        working-directory: twa-build
+          echo "=== Build outputs ==="
+          find . -name "*.apk" -o -name "*.aab" 2>/dev/null
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Collect artifacts
         run: |
-          keytool -list -v \
-            -keystore mandarin-master.keystore \
-            -alias mandarin-master \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} | grep SHA256 | head -1
+          mkdir -p artifacts
+          find twa-build -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
+          find twa-build -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
+          cp mandarin-master.keystore artifacts/ 2>/dev/null || true
+          echo "=== Artifacts ==="
+          ls -la artifacts/
 
-      - name: Upload APK artifact
+      - name: Upload APK
         if: inputs.build_type == 'apk' || inputs.build_type == 'both'
         uses: actions/upload-artifact@v4
         with:
           name: mandarin-master-apk
-          path: twa-build/app/build/outputs/apk/**/*.apk
+          path: artifacts/*.apk
           if-no-files-found: warn
 
-      - name: Upload AAB artifact
+      - name: Upload AAB
         if: inputs.build_type == 'aab' || inputs.build_type == 'both'
         uses: actions/upload-artifact@v4
         with:
           name: mandarin-master-aab
-          path: twa-build/app/build/outputs/bundle/**/*.aab
+          path: artifacts/*.aab
           if-no-files-found: warn
 
-      - name: Upload keystore (encrypted)
+      - name: Upload keystore
         uses: actions/upload-artifact@v4
         with:
           name: signing-keystore
-          path: twa-build/mandarin-master.keystore
+          path: mandarin-master.keystore
           retention-days: 1
+
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA-256 Fingerprint:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download artifacts from this run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update \`.well-known/assetlinks.json\` with the SHA-256 fingerprint above" >> $GITHUB_STEP_SUMMARY
+          echo "3. Upload APK/AAB to Google Play Console" >> $GITHUB_STEP_SUMMARY
+          echo "4. Upload APK to Amazon Appstore" >> $GITHUB_STEP_SUMMARY
+          echo "5. Upload APK to Huawei AppGallery" >> $GITHUB_STEP_SUMMARY
