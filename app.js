@@ -242,6 +242,208 @@ var SupabaseSync = {
     }
 };
 
+// --- SPACED REPETITION SYSTEM (SRS) ---
+var SRS = {
+    // SM-2 intervals in hours: 4h, 1d, 3d, 7d, 14d, 30d, 60d
+    intervals: [4, 24, 72, 168, 336, 720, 1440],
+
+    getKey: function(level) { return 'mm_srs_' + level; },
+
+    getData: function(level) {
+        try { return JSON.parse(localStorage.getItem(this.getKey(level))) || {}; } catch(e) { return {}; }
+    },
+
+    saveData: function(level, data) {
+        localStorage.setItem(this.getKey(level), JSON.stringify(data));
+    },
+
+    // Record a word into SRS after it's been learned (all 3 steps passed)
+    recordWord: function(level, wordIndex) {
+        var data = this.getData(level);
+        var key = String(wordIndex);
+        if (!data[key]) {
+            data[key] = {
+                box: 0,           // SRS box (0-6), higher = longer interval
+                ease: 2.5,        // ease factor
+                nextReview: Date.now() + this.intervals[0] * 3600000, // first review in 4 hours
+                lastReview: Date.now(),
+                reviewCount: 0
+            };
+            this.saveData(level, data);
+        }
+    },
+
+    // Get words due for review
+    getDueWords: function(level) {
+        var data = this.getData(level);
+        var vocabData = levelData[level];
+        if (!vocabData || !vocabData.vocab) return [];
+        var now = Date.now();
+        var due = [];
+        for (var key in data) {
+            if (data[key].nextReview <= now) {
+                var idx = parseInt(key);
+                var word = vocabData.vocab[idx];
+                if (word) {
+                    due.push({ index: idx, word: word, srs: data[key] });
+                }
+            }
+        }
+        // Sort by most overdue first
+        due.sort(function(a, b) { return a.srs.nextReview - b.srs.nextReview; });
+        return due;
+    },
+
+    // Count due words
+    getDueCount: function(level) {
+        var data = this.getData(level);
+        var now = Date.now();
+        var count = 0;
+        for (var key in data) {
+            if (data[key].nextReview <= now) count++;
+        }
+        return count;
+    },
+
+    // Grade a review: 0=Again, 1=Hard, 2=Good, 3=Easy
+    gradeReview: function(level, wordIndex, grade) {
+        var data = this.getData(level);
+        var key = String(wordIndex);
+        if (!data[key]) return;
+
+        var card = data[key];
+        card.reviewCount++;
+        card.lastReview = Date.now();
+
+        if (grade === 0) {
+            // Again — reset to box 0
+            card.box = 0;
+            card.ease = Math.max(1.3, card.ease - 0.2);
+        } else if (grade === 1) {
+            // Hard — same box, shorter interval
+            card.ease = Math.max(1.3, card.ease - 0.15);
+        } else if (grade === 2) {
+            // Good — advance one box
+            card.box = Math.min(card.box + 1, this.intervals.length - 1);
+        } else if (grade === 3) {
+            // Easy — advance two boxes
+            card.box = Math.min(card.box + 2, this.intervals.length - 1);
+            card.ease = Math.min(3.0, card.ease + 0.15);
+        }
+
+        var interval = this.intervals[card.box] * card.ease;
+        card.nextReview = Date.now() + interval * 3600000;
+        data[key] = card;
+        this.saveData(level, data);
+    }
+};
+
+// Start SRS Review Session
+function startSRSReview() {
+    var dueWords = SRS.getDueWords(state.currentLevel);
+    if (dueWords.length === 0) {
+        elements.feedback.textContent = "No words due for review right now!";
+        elements.feedback.className = 'feedback success';
+        return;
+    }
+
+    var reviewQueue = dueWords.slice(0, 20); // Max 20 per session
+    var reviewIndex = 0;
+    var data = getCurrentData();
+
+    function showReviewCard() {
+        if (reviewIndex >= reviewQueue.length) {
+            // Review complete
+            var html = '<div style="text-align:center;padding:30px 20px;">' +
+                '<h2 style="font-size:24px;color:var(--teal);margin-bottom:10px;">Review Complete!</h2>' +
+                '<p style="font-size:48px;margin:15px 0;">🧠</p>' +
+                '<p style="font-size:20px;color:var(--text);margin-bottom:5px;">' + reviewQueue.length + ' words reviewed</p>' +
+                '<p style="font-size:14px;color:var(--text-2);margin-bottom:8px;">' + SRS.getDueCount(state.currentLevel) + ' still due</p>' +
+                '<button onclick="switchSection(\'vocab\')" style="background:var(--teal);color:#0f1520;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">Back to Vocabulary</button>' +
+                '</div>';
+            var container = document.getElementById('srs-review-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'srs-review-container';
+                document.getElementById('vocab-section').appendChild(container);
+            }
+            container.innerHTML = html;
+            state.score += reviewQueue.length * 10;
+            state.xpToday += reviewQueue.length * 10;
+            saveProgress();
+            updateBelowCardContent();
+            return;
+        }
+
+        var item = reviewQueue[reviewIndex];
+        var word = item.word;
+        var showAnswer = false;
+
+        var cardHTML = '<div style="text-align:center;padding:20px;">' +
+            '<p style="font-size:12px;color:var(--text-3);margin-bottom:8px;">Review ' + (reviewIndex + 1) + ' of ' + reviewQueue.length + '</p>' +
+            '<p style="font-family:\'Noto Serif SC\',serif;font-size:56px;font-weight:700;color:var(--text);margin:20px 0;">' + word.chinese + '</p>' +
+            '<p style="font-size:18px;color:var(--teal);margin-bottom:15px;">' + word.pinyin + '</p>' +
+            '<div id="srs-answer" style="min-height:60px;margin-bottom:20px;">' +
+                '<button id="srs-show-btn" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 24px;font-size:14px;color:var(--text);cursor:pointer;">Show Answer</button>' +
+            '</div>' +
+            '</div>';
+
+        var section = document.getElementById('vocab-section');
+        var container = document.getElementById('srs-review-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'srs-review-container';
+            section.appendChild(container);
+        }
+        container.innerHTML = cardHTML;
+
+        // Hide learning card
+        var learningCard = section.querySelector('.learning-card');
+        var belowCard = section.querySelector('.below-card-content');
+        var sectionHeader = section.querySelector('.section-header');
+        if (learningCard) learningCard.style.display = 'none';
+        if (belowCard) belowCard.style.display = 'none';
+        if (sectionHeader) sectionHeader.style.display = 'none';
+
+        document.getElementById('srs-show-btn').addEventListener('click', function() {
+            var answerDiv = document.getElementById('srs-answer');
+            answerDiv.innerHTML = '<p style="font-size:20px;color:var(--text);font-weight:600;margin-bottom:20px;">' + word.english + '</p>' +
+                '<p style="font-size:12px;color:var(--text-3);margin-bottom:12px;">How well did you remember?</p>' +
+                '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:400px;margin:0 auto;">' +
+                    '<button class="srs-grade-btn" data-grade="0" style="background:rgba(251,113,133,0.15);border:1px solid var(--rose);border-radius:10px;padding:10px 6px;font-size:12px;color:var(--rose);cursor:pointer;"><div style="font-size:16px;">😣</div>Again</button>' +
+                    '<button class="srs-grade-btn" data-grade="1" style="background:rgba(251,191,36,0.15);border:1px solid #fbbf24;border-radius:10px;padding:10px 6px;font-size:12px;color:#fbbf24;cursor:pointer;"><div style="font-size:16px;">😐</div>Hard</button>' +
+                    '<button class="srs-grade-btn" data-grade="2" style="background:rgba(0,212,170,0.15);border:1px solid var(--teal);border-radius:10px;padding:10px 6px;font-size:12px;color:var(--teal);cursor:pointer;"><div style="font-size:16px;">😊</div>Good</button>' +
+                    '<button class="srs-grade-btn" data-grade="3" style="background:rgba(96,165,250,0.15);border:1px solid #60a5fa;border-radius:10px;padding:10px 6px;font-size:12px;color:#60a5fa;cursor:pointer;"><div style="font-size:16px;">😎</div>Easy</button>' +
+                '</div>';
+
+            answerDiv.querySelectorAll('.srs-grade-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var grade = parseInt(btn.getAttribute('data-grade'));
+                    SRS.gradeReview(state.currentLevel, item.index, grade);
+                    reviewIndex++;
+                    setTimeout(showReviewCard, 300);
+                });
+            });
+        });
+    }
+
+    switchSection('vocab');
+    document.querySelector('.main-content').scrollTop = 0;
+    showReviewCard();
+}
+
+function endSRSReview() {
+    var section = document.getElementById('vocab-section');
+    var container = document.getElementById('srs-review-container');
+    if (container) container.remove();
+    var learningCard = section.querySelector('.learning-card');
+    var belowCard = section.querySelector('.below-card-content');
+    var sectionHeader = section.querySelector('.section-header');
+    if (learningCard) learningCard.style.display = '';
+    if (belowCard) belowCard.style.display = '';
+    if (sectionHeader) sectionHeader.style.display = '';
+}
+
 // --- PER-WORD SCORE TRACKING ---
 function recordWordScore() {
     var word = getCurrentWord();
@@ -439,13 +641,29 @@ function updateBelowCardContent() {
     if (elements.upsellCard && state.isPremium) {
         elements.upsellCard.style.display = 'none';
     }
+
+    // SRS due count on Quick Drill button
+    var dueCount = SRS.getDueCount(state.currentLevel);
+    var drillSub = document.querySelector('#quick-drill-btn .quick-sub');
+    if (drillSub) {
+        drillSub.textContent = dueCount > 0 ? dueCount + ' words due' : '5-min flash review';
+        if (dueCount > 0) drillSub.style.color = 'var(--teal)';
+        else drillSub.style.color = '';
+    }
 }
 
 function loadWordOfDay() {
     var data = getCurrentData();
     if (!data || !data.vocab || data.vocab.length === 0) return;
-    // Deterministic "random" based on date
-    var dayIndex = new Date().getDate() % data.vocab.length;
+    // Deterministic "random" based on full date — changes daily, cycles through all words
+    var today = new Date();
+    var dateStr = today.getFullYear() + '-' + today.getMonth() + '-' + today.getDate();
+    var hash = 0;
+    for (var i = 0; i < dateStr.length; i++) {
+        hash = ((hash << 5) - hash) + dateStr.charCodeAt(i);
+        hash = hash & hash; // Convert to 32-bit int
+    }
+    var dayIndex = Math.abs(hash) % data.vocab.length;
     var word = data.vocab[dayIndex];
     if (elements.wodChar) elements.wodChar.textContent = word.chinese;
     if (elements.wodPinyin) elements.wodPinyin.textContent = word.pinyin;
@@ -817,11 +1035,41 @@ function init() {
         window.auth.getUser().then(function(user) {
             if (!user) {
                 document.body.classList.add('auth-required');
-                if (window.AuthModal) {
-                    window.AuthModal.isClosable = false;
-                    var closeBtn = document.getElementById('am-close-btn');
-                    if (closeBtn) closeBtn.style.display = 'none';
-                    window.AuthModal.show('signin');
+                // Show onboarding for first-time users
+                var hasVisited = localStorage.getItem('mm_hasVisited');
+                var onboarding = document.getElementById('onboarding-overlay');
+                if (!hasVisited && onboarding) {
+                    onboarding.style.display = 'block';
+                    var startBtn = document.getElementById('onboarding-start-btn');
+                    var signinBtn = document.getElementById('onboarding-signin-btn');
+                    if (startBtn) startBtn.addEventListener('click', function() {
+                        onboarding.style.display = 'none';
+                        localStorage.setItem('mm_hasVisited', 'true');
+                        if (window.AuthModal) {
+                            window.AuthModal.isClosable = false;
+                            var closeBtn = document.getElementById('am-close-btn');
+                            if (closeBtn) closeBtn.style.display = 'none';
+                            window.AuthModal.show('signup');
+                        }
+                    });
+                    if (signinBtn) signinBtn.addEventListener('click', function() {
+                        onboarding.style.display = 'none';
+                        localStorage.setItem('mm_hasVisited', 'true');
+                        if (window.AuthModal) {
+                            window.AuthModal.isClosable = false;
+                            var closeBtn = document.getElementById('am-close-btn');
+                            if (closeBtn) closeBtn.style.display = 'none';
+                            window.AuthModal.show('signin');
+                        }
+                    });
+                } else {
+                    // Returning user — go straight to auth modal
+                    if (window.AuthModal) {
+                        window.AuthModal.isClosable = false;
+                        var closeBtn = document.getElementById('am-close-btn');
+                        if (closeBtn) closeBtn.style.display = 'none';
+                        window.AuthModal.show('signin');
+                    }
                 }
             } else {
                 document.body.classList.remove('auth-required');
@@ -966,7 +1214,10 @@ function setupEventListeners() {
     // --- BELOW-CARD QUICK ACTIONS ---
     if (elements.quickDrillBtn) {
         elements.quickDrillBtn.addEventListener('click', function() {
-            if (state.currentWordIndex > 0) {
+            var dueCount = SRS.getDueCount(state.currentLevel);
+            if (dueCount > 0) {
+                startSRSReview();
+            } else if (state.currentWordIndex > 0) {
                 enterReviewMode();
             } else {
                 elements.feedback.textContent = "💡 Study at least 1 word first to unlock Quick Drill!";
@@ -1009,6 +1260,29 @@ function setupEventListeners() {
             showPaywall();
         });
     }
+
+    // --- ANALYTICS ---
+    // Make stats row clickable to open analytics
+    var statsRow = document.querySelector('.stats-row');
+    if (statsRow) {
+        statsRow.style.cursor = 'pointer';
+        statsRow.addEventListener('click', function() {
+            renderAnalytics();
+            switchSection('analytics');
+        });
+    }
+    // Make "Analytics" perk chip clickable
+    var perkChips = document.querySelectorAll('.perk-chip');
+    perkChips.forEach(function(chip) {
+        if (chip.textContent.trim() === 'Analytics') {
+            chip.style.cursor = 'pointer';
+            chip.addEventListener('click', function(e) {
+                e.stopPropagation();
+                renderAnalytics();
+                switchSection('analytics');
+            });
+        }
+    });
 
     // --- BACKGROUND AUDIO ---
     var bgAudioBtn = document.getElementById('bg-audio-btn');
@@ -1256,8 +1530,9 @@ function unlockSection(sectionName) {
 }
 
 function switchSection(sectionName) {
-    // Clean up mock HSK quiz if active
+    // Clean up mock HSK quiz and SRS review if active
     endMockHSK();
+    endSRSReview();
     state.currentSection = sectionName;
     elements.sidebarLinks.forEach(link => { link.classList.toggle('active', link.dataset.section === sectionName); });
     elements.sections.forEach(sec => sec.classList.remove('active'));
@@ -1498,6 +1773,7 @@ function handleDraw() {
             // Retract the writing area
             elements.characterTarget.classList.remove('write-active');
             recordWordScore();
+            SRS.recordWord(state.currentLevel, state.currentWordIndex);
             if (!state.reviewMode) {
                 elements.feedback.textContent = "✅ Character complete! Press Next.";
                 elements.feedback.className = 'feedback success';
@@ -1927,28 +2203,187 @@ function renderResources() {
 function renderLeaderboard() {
     if (!elements.leaderboardList) return;
 
-    // Mock Data randomized slightly
-    const users = [
-        { name: "You", score: state.score, yours: true },
-        { name: "Li Hua", score: 2400, yours: false },
-        { name: "Sarah J.", score: 1850, yours: false },
-        { name: "Mike Chen", score: 1200, yours: false },
-        { name: "Anna K.", score: 950, yours: false }
+    // Try to fetch real leaderboard from Supabase
+    if (window.supabaseClient) {
+        window.supabaseClient.from('user_progress')
+            .select('user_id, score, level, streak')
+            .order('score', { ascending: false })
+            .limit(20)
+            .then(function(res) {
+                if (res.error || !res.data || res.data.length === 0) {
+                    renderLeaderboardFallback();
+                    return;
+                }
+                // Fetch display names from auth
+                var entries = res.data;
+                var currentUserId = state.user ? state.user.id : null;
+                var userFound = false;
+
+                var users = entries.map(function(e, i) {
+                    var isYou = e.user_id === currentUserId;
+                    if (isYou) userFound = true;
+                    return {
+                        name: isYou ? 'You' : ('Learner ' + (i + 1)),
+                        score: e.score || 0,
+                        level: e.level || 1,
+                        streak: e.streak || 0,
+                        yours: isYou
+                    };
+                });
+
+                // Add current user if not in top 20
+                if (!userFound && currentUserId) {
+                    users.push({ name: 'You', score: state.score, level: state.currentLevel, streak: state.streak, yours: true });
+                    users.sort(function(a, b) { return b.score - a.score; });
+                }
+
+                renderLeaderboardHTML(users);
+
+                // Update rank display
+                var rank = users.findIndex(function(u) { return u.yours; });
+                var rankSub = document.getElementById('quick-rank-sub');
+                if (rankSub && rank >= 0) rankSub.textContent = 'Rank #' + (rank + 1);
+            }).catch(function() { renderLeaderboardFallback(); });
+    } else {
+        renderLeaderboardFallback();
+    }
+}
+
+function renderLeaderboardFallback() {
+    var users = [
+        { name: "You", score: state.score, level: state.currentLevel, streak: state.streak, yours: true },
+        { name: "Li Hua", score: 2400, level: 3, streak: 12, yours: false },
+        { name: "Sarah J.", score: 1850, level: 2, streak: 7, yours: false },
+        { name: "Mike Chen", score: 1200, level: 2, streak: 4, yours: false },
+        { name: "Anna K.", score: 950, level: 1, streak: 3, yours: false }
     ];
+    users.sort(function(a, b) { return b.score - a.score; });
+    renderLeaderboardHTML(users);
+}
 
-    // Sort
-    users.sort((a, b) => b.score - a.score);
+function renderLeaderboardHTML(users) {
+    var medals = ['🥇', '🥈', '🥉'];
+    elements.leaderboardList.innerHTML = users.map(function(u, index) {
+        var rankDisplay = index < 3 ? medals[index] : '#' + (index + 1);
+        return '<div class="leaderboard-item ' + (u.yours ? 'highlight' : '') + '">' +
+            '<div class="rank">' + rankDisplay + '</div>' +
+            '<div class="user-info">' +
+                '<h4>' + u.name + (u.yours ? ' (Me)' : '') + '</h4>' +
+                '<span>HSK ' + u.level + ' · 🔥 ' + u.streak + '</span>' +
+            '</div>' +
+            '<div class="score">' + u.score + ' XP</div>' +
+        '</div>';
+    }).join('');
+}
 
-    elements.leaderboardList.innerHTML = users.map((u, index) => `
-        <div class="leaderboard-item ${u.yours ? 'highlight' : ''}">
-            <div class="rank">#${index + 1}</div>
-            <div class="user-info">
-                <h4>${u.name} ${u.yours ? '(Me)' : ''}</h4>
-                <span>HSK ${u.yours ? state.currentLevel : Math.floor(Math.random() * 3) + 1} Learner</span>
-            </div>
-            <div class="score">${u.score} XP</div>
-        </div>
-    `).join('');
+// --- ANALYTICS DASHBOARD ---
+function renderAnalytics() {
+    var container = document.getElementById('analytics-content');
+    if (!container) return;
+
+    var data = getCurrentData();
+    var totalWords = data ? data.vocab.length : 0;
+    var wordsLearned = state.currentWordIndex;
+    var pctComplete = totalWords > 0 ? Math.round((wordsLearned / totalWords) * 100) : 0;
+
+    // SRS stats
+    var srsData = SRS.getData(state.currentLevel);
+    var totalSRS = Object.keys(srsData).length;
+    var dueNow = SRS.getDueCount(state.currentLevel);
+    var masteredCount = 0;
+    for (var key in srsData) {
+        if (srsData[key].box >= 4) masteredCount++;
+    }
+
+    // Word score stats
+    var scoreKey = 'mm_wordScores_' + state.currentLevel;
+    var wordScores = {};
+    try { wordScores = JSON.parse(localStorage.getItem(scoreKey)) || {}; } catch(e) {}
+    var totalAttempts = 0;
+    var perfectWords = 0;
+    for (var k in wordScores) {
+        totalAttempts += wordScores[k].attempts || 0;
+        if (wordScores[k].mastered && (wordScores[k].failedStrokes || 0) === 0) perfectWords++;
+    }
+
+    // Study time
+    var sessionMins = Math.round((Date.now() - state.sessionStartTime) / 60000);
+
+    // Build mastery bar segments
+    var masteredPct = totalSRS > 0 ? Math.round((masteredCount / totalSRS) * 100) : 0;
+    var learningPct = totalSRS > 0 ? Math.round(((totalSRS - masteredCount) / totalSRS) * 100) : 0;
+
+    var html = '<div class="card" style="margin-bottom:12px;">' +
+        '<h3 style="font-size:16px;color:var(--text);margin-bottom:16px;">HSK ' + state.currentLevel + ' Progress</h3>' +
+        '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;">' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">' +
+                '<div style="font-size:28px;font-weight:700;color:var(--teal);">' + wordsLearned + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);margin-top:2px;">Words Learned</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">' +
+                '<div style="font-size:28px;font-weight:700;color:var(--teal);">' + pctComplete + '%</div>' +
+                '<div style="font-size:11px;color:var(--text-2);margin-top:2px;">Level Complete</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">' +
+                '<div style="font-size:28px;font-weight:700;color:var(--teal);">' + state.streak + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);margin-top:2px;">Day Streak</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;">' +
+                '<div style="font-size:28px;font-weight:700;color:var(--teal);">' + state.score + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);margin-top:2px;">Total XP</div>' +
+            '</div>' +
+        '</div>' +
+
+        // Progress bar
+        '<div style="margin-bottom:4px;display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);">' +
+            '<span>' + wordsLearned + ' / ' + totalWords + ' words</span>' +
+            '<span>' + pctComplete + '%</span>' +
+        '</div>' +
+        '<div style="background:var(--surface);border-radius:8px;height:8px;overflow:hidden;margin-bottom:16px;">' +
+            '<div style="background:linear-gradient(90deg,#00d4aa,#00bfa5);height:100%;width:' + pctComplete + '%;border-radius:8px;transition:width 0.5s;"></div>' +
+        '</div>' +
+    '</div>' +
+
+    // SRS stats card
+    '<div class="card" style="margin-bottom:12px;">' +
+        '<h3 style="font-size:16px;color:var(--text);margin-bottom:16px;">Spaced Repetition</h3>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:' + (dueNow > 0 ? 'var(--rose)' : 'var(--teal)') + ';">' + dueNow + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">Due Now</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:var(--teal);">' + totalSRS + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">In Review</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:var(--teal);">' + masteredCount + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">Mastered</div>' +
+            '</div>' +
+        '</div>' +
+        (dueNow > 0 ? '<button onclick="startSRSReview()" style="width:100%;padding:12px;background:var(--teal);color:#0f1520;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;">Review ' + dueNow + ' Due Words</button>' : '') +
+    '</div>' +
+
+    // Session stats card
+    '<div class="card">' +
+        '<h3 style="font-size:16px;color:var(--text);margin-bottom:16px;">This Session</h3>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:var(--teal);">' + state.wordsStudiedThisSession + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">Words Studied</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:var(--teal);">' + sessionMins + 'm</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">Study Time</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:24px;font-weight:700;color:var(--teal);">' + state.xpToday + '</div>' +
+                '<div style="font-size:11px;color:var(--text-2);">XP Today</div>' +
+            '</div>' +
+        '</div>' +
+    '</div>';
+
+    container.innerHTML = html;
 }
 
 function speak(text) { const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 0.85; speechSynthesis.speak(u); }

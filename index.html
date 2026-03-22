@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=9">
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json">
@@ -318,6 +318,15 @@
                 </div>
             </section>
 
+            <section id="analytics-section" class="content-section">
+                <header class="section-header">
+                    <h2>Study Analytics 📊</h2>
+                </header>
+                <div id="analytics-content">
+                    <!-- Dynamic Content -->
+                </div>
+            </section>
+
         </main>
     </div>
 
@@ -440,17 +449,50 @@
         </div>
     </div>
 
+    <!-- Onboarding Overlay (first-time users) -->
+    <div id="onboarding-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:10000;overflow-y:auto;">
+        <div style="max-width:440px;margin:0 auto;padding:40px 24px;text-align:center;">
+            <div style="font-size:56px;margin-bottom:12px;">🀄</div>
+            <h1 style="font-size:28px;font-weight:700;color:var(--text);margin-bottom:4px;">Mandarin Master</h1>
+            <p style="font-size:14px;color:var(--text-2);margin-bottom:32px;">Your path to Chinese fluency</p>
+
+            <div style="display:flex;flex-direction:column;gap:16px;text-align:left;margin-bottom:32px;">
+                <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);padding:14px 16px;border-radius:12px;border:1px solid var(--border);">
+                    <span style="font-size:24px;">🎧</span>
+                    <div><div style="font-weight:600;color:var(--text);font-size:14px;">Listen & Speak</div><div style="font-size:12px;color:var(--text-2);">Hear native pronunciation, then practice speaking with speech recognition</div></div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);padding:14px 16px;border-radius:12px;border:1px solid var(--border);">
+                    <span style="font-size:24px;">✍️</span>
+                    <div><div style="font-weight:600;color:var(--text);font-size:14px;">Write Characters</div><div style="font-size:12px;color:var(--text-2);">Trace stroke-by-stroke with HanziWriter — learn proper stroke order</div></div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);padding:14px 16px;border-radius:12px;border:1px solid var(--border);">
+                    <span style="font-size:24px;">🧠</span>
+                    <div><div style="font-weight:600;color:var(--text);font-size:14px;">Spaced Repetition</div><div style="font-size:12px;color:var(--text-2);">Smart review system surfaces words right before you forget them</div></div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);padding:14px 16px;border-radius:12px;border:1px solid var(--border);">
+                    <span style="font-size:24px;">📚</span>
+                    <div><div style="font-weight:600;color:var(--text);font-size:14px;">HSK 1–6 Coverage</div><div style="font-size:12px;color:var(--text-2);">4,597 words, 139 phrases, 6 stories — from beginner to advanced</div></div>
+                </div>
+            </div>
+
+            <p style="font-size:13px;color:var(--teal);font-weight:600;margin-bottom:16px;">Start free — learn 25 words, no credit card needed</p>
+
+            <button id="onboarding-start-btn" style="width:100%;padding:14px;background:linear-gradient(135deg,#00d4aa,#00bfa5);border:none;border-radius:12px;color:#0f1520;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:12px;transition:transform 0.2s;">Get Started</button>
+            <button id="onboarding-signin-btn" style="width:100%;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;cursor:pointer;">I already have an account</button>
+        </div>
+    </div>
+
     <!-- HSK Data Loading -->
-    <script src="data/hsk1.js?v=8"></script>
-    <script src="data/hsk2.js?v=8"></script>
-    <script src="data/hsk3.js?v=8"></script>
-    <script src="data/hsk4.js?v=8"></script>
-    <script src="data/hsk5.js?v=8"></script>
-    <script src="data/hsk6.js?v=8"></script>
+    <script src="data/hsk1.js?v=9"></script>
+    <script src="data/hsk2.js?v=9"></script>
+    <script src="data/hsk3.js?v=9"></script>
+    <script src="data/hsk4.js?v=9"></script>
+    <script src="data/hsk5.js?v=9"></script>
+    <script src="data/hsk6.js?v=9"></script>
 
     <!-- Auth: Supabase client + auth module (load order matters) -->
-    <script src="js/supabase.js?v=8"></script>
-    <script src="js/auth.js?v=8"></script>
+    <script src="js/supabase.js?v=9"></script>
+    <script src="js/auth.js?v=9"></script>
 
     <!-- Auth Modal Controller (depends on auth.js + DOM) -->
     <script>
@@ -543,7 +585,7 @@
     <script src="https://www.paypal.com/sdk/js?client-id=ASZJb0IXSS2NCfyxSVLS_0XkSgwM7LbrIm4zDU7OZMBtD_IDpoqvzjIdlM1cQBdHdUbdp2z2L6B0y5tW&currency=USD"></script>
 
     <!-- App (depends on everything above) -->
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=9"></script>
 
     <!-- Service Worker Registration -->
     <script>
