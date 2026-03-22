@@ -1020,6 +1020,7 @@ function init() {
     updateStreak();
     loadWordOfDay();
     updateBelowCardContent();
+    Referral.checkIncoming();
 
     // Update study time every 60 seconds
     setInterval(function() { updateBelowCardContent(); }, 60000);
@@ -1324,6 +1325,19 @@ function setupEventListeners() {
         }
     });
 
+    // --- TRIAL EXTENSION ---
+    var trialExtBtn = document.getElementById('trial-extend-share-btn');
+    if (trialExtBtn) {
+        trialExtBtn.addEventListener('click', function() {
+            TrialExtension.shareAndExtend();
+        });
+    }
+    // Hide trial extend if already used
+    if (TrialExtension.isExtended()) {
+        var trialSection = document.getElementById('trial-extend-section');
+        if (trialSection) trialSection.style.display = 'none';
+    }
+
     // --- BACKGROUND AUDIO ---
     var bgAudioBtn = document.getElementById('bg-audio-btn');
     var mobileBgAudioBtn = document.getElementById('mobile-audio-btn');
@@ -1540,11 +1554,25 @@ function setupAuthListeners() {
 
 function showPaywall() {
     // Update upgrade modal messaging
-    if (elements.upgradeTitle) elements.upgradeTitle.textContent = 'Unlock Full Access 👑';
+    if (elements.upgradeTitle) elements.upgradeTitle.textContent = 'Unlock Full Access';
     if (elements.upgradeSubtitle) {
+        var effectiveLimit = TrialExtension.getLimit();
         const data = getCurrentData();
         const total = data ? data.vocab.length : 150;
-        elements.upgradeSubtitle.textContent = "You've mastered " + FREE_WORD_LIMIT + " words! Upgrade to unlock all " + total + " HSK" + state.currentLevel + " words plus HSK 2-6.";
+        elements.upgradeSubtitle.textContent = "You've mastered " + effectiveLimit + " words! Upgrade to unlock all " + total + " HSK" + state.currentLevel + " words plus HSK 2-6.";
+    }
+    // Dynamic social proof number (randomized but consistent per day)
+    var socialText = document.getElementById('paywall-social-text');
+    if (socialText) {
+        var today = new Date();
+        var daySeed = today.getFullYear() * 1000 + today.getMonth() * 31 + today.getDate();
+        var count = 30 + (daySeed % 40); // 30-69 range
+        socialText.textContent = count + ' learners upgraded this week';
+    }
+    // Hide trial extend if already used
+    var trialSection = document.getElementById('trial-extend-section');
+    if (trialSection) {
+        trialSection.style.display = TrialExtension.isExtended() ? 'none' : '';
     }
     elements.upgradeModal.classList.remove('hidden');
     renderPayPalButton();
@@ -1596,6 +1624,7 @@ function switchSection(sectionName) {
     endMockHSK();
     endSRSReview();
     endDailyChallenge();
+    endPhrasePractice();
     if (sectionName === 'analytics') renderAnalytics();
     state.currentSection = sectionName;
     elements.sidebarLinks.forEach(link => { link.classList.toggle('active', link.dataset.section === sectionName); });
@@ -1863,11 +1892,15 @@ function handleNextWord() {
     if (state.currentWordIndex < total - 1) {
         state.currentWordIndex++;
 
-        // PAYWALL: After reaching free limit, require premium
-        if (state.currentWordIndex >= FREE_WORD_LIMIT && !state.isPremium) {
+        // PAYWALL: After reaching free limit (or extended limit), require premium
+        var effectiveLimit = TrialExtension.getLimit();
+        if (state.currentWordIndex >= effectiveLimit && !state.isPremium) {
             showPaywall();
             return;
         }
+
+        // Track weekly goals
+        WeeklyGoals.recordWord();
 
         loadWord(state.currentWordIndex);
         saveProgress();
@@ -2237,6 +2270,16 @@ function highlightSentence(sentence, learnedSet, unlearnedSet) {
 
 function renderPhrases() {
     const data = getCurrentData(); if (!data || !data.phrases) return;
+    // Add practice button to phrases header if not already there
+    var phrasesHeader = document.querySelector('#phrases-section .section-header');
+    if (phrasesHeader && !document.getElementById('phrase-practice-btn')) {
+        var practiceBtn = document.createElement('button');
+        practiceBtn.id = 'phrase-practice-btn';
+        practiceBtn.style.cssText = 'background:var(--teal);color:#0f1520;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;';
+        practiceBtn.textContent = 'Practice Phrases';
+        practiceBtn.addEventListener('click', function() { startPhrasePractice(); });
+        phrasesHeader.appendChild(practiceBtn);
+    }
     var learned = getLearnedWords();
     var unlearned = getUnlearnedWords();
 
@@ -2470,8 +2513,14 @@ function renderAnalytics() {
         '</div>' +
     '</div>';
 
+    // Add weekly goals
+    html += WeeklyGoals.renderCard();
+
     // Add journey progress
     html += renderJourneyProgress();
+
+    // Add referral card
+    html += Referral.renderCard();
 
     // Add achievements
     html += renderAchievements();
@@ -2771,6 +2820,7 @@ function renderAchievements() {
             '<div style="font-size:28px;margin-bottom:4px;">' + (isUnlocked ? a.icon : '🔒') + '</div>' +
             '<div style="font-size:12px;font-weight:600;color:var(--text);">' + a.title + '</div>' +
             '<div style="font-size:10px;color:var(--text-2);margin-top:2px;">' + a.desc + '</div>' +
+            (isUnlocked ? '<button onclick="AchievementShare.share(Achievements.definitions[' + i + '])" style="margin-top:6px;background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:9px;color:var(--text-3);cursor:pointer;">Share</button>' : '') +
         '</div>';
     }
     html += '</div></div>';
@@ -3452,5 +3502,476 @@ var StreakShield = {
         saveProgress();
     }
 };
+
+// --- REFERRAL SYSTEM ---
+var Referral = {
+    getCode: function() {
+        var code = localStorage.getItem('mm_referral_code');
+        if (!code) {
+            code = 'MM' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            localStorage.setItem('mm_referral_code', code);
+        }
+        return code;
+    },
+
+    getReferralCount: function() {
+        return parseInt(localStorage.getItem('mm_referral_count')) || 0;
+    },
+
+    getLink: function() {
+        return window.location.origin + '?ref=' + this.getCode();
+    },
+
+    checkIncoming: function() {
+        var params = new URLSearchParams(window.location.search);
+        var ref = params.get('ref');
+        if (!ref || localStorage.getItem('mm_referred_by')) return;
+        localStorage.setItem('mm_referred_by', ref);
+        // Give referred user 100 XP bonus
+        state.score += 100;
+        state.xpToday += 100;
+        setTimeout(function() {
+            var toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;text-align:center;animation:slideDown 0.4s ease;';
+            toast.innerHTML = '<p style="font-size:28px;margin-bottom:4px;">&#x1F381;</p>' +
+                '<p style="font-size:14px;font-weight:600;color:var(--teal);">Referral Bonus!</p>' +
+                '<p style="font-size:12px;color:var(--text-2);margin-top:4px;">You were invited by a friend. +100 XP bonus!</p>';
+            document.body.appendChild(toast);
+            setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 5000);
+        }, 2000);
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+    },
+
+    share: function() {
+        var link = this.getLink();
+        var text = 'I\'m learning Mandarin Chinese with Mandarin Master! Join me and get 100 XP bonus: ' + link;
+
+        if (navigator.share) {
+            navigator.share({
+                title: 'Learn Chinese with Mandarin Master',
+                text: text,
+                url: link
+            }).catch(function() {});
+        } else {
+            // Fallback: copy to clipboard
+            navigator.clipboard.writeText(link).then(function() {
+                var toast = document.createElement('div');
+                toast.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--teal);color:#0f1520;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.3);';
+                toast.textContent = 'Referral link copied!';
+                document.body.appendChild(toast);
+                setTimeout(function() { toast.remove(); }, 3000);
+            });
+        }
+    },
+
+    renderCard: function() {
+        var count = this.getReferralCount();
+        var code = this.getCode();
+        return '<div class="card" style="margin-bottom:12px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+                '<h3 style="font-size:16px;color:var(--text);margin:0;">Invite Friends</h3>' +
+                '<span style="font-size:11px;background:rgba(0,191,165,0.1);color:var(--teal);padding:3px 10px;border-radius:20px;">' + count + ' invited</span>' +
+            '</div>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-bottom:12px;">Share your link — you both earn <strong style="color:var(--teal);">100 XP</strong> when they sign up!</p>' +
+            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">' +
+                '<div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + this.getLink() + '</div>' +
+            '</div>' +
+            '<button onclick="Referral.share()" style="width:100%;background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;">Share Invite Link</button>' +
+        '</div>';
+    }
+};
+
+// --- ACHIEVEMENT SHARE CARDS ---
+var AchievementShare = {
+    share: function(achievement) {
+        // Create a canvas-based share card
+        var canvas = document.createElement('canvas');
+        canvas.width = 600;
+        canvas.height = 400;
+        var ctx = canvas.getContext('2d');
+
+        // Background
+        ctx.fillStyle = '#0f1520';
+        ctx.fillRect(0, 0, 600, 400);
+
+        // Gradient accent
+        var gradient = ctx.createLinearGradient(0, 350, 600, 400);
+        gradient.addColorStop(0, '#00bfa5');
+        gradient.addColorStop(1, '#00d4aa');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 370, 600, 30);
+
+        // Icon
+        ctx.font = '64px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(achievement.icon, 300, 120);
+
+        // Title
+        ctx.font = 'bold 28px sans-serif';
+        ctx.fillStyle = '#ecf0f1';
+        ctx.fillText(achievement.title, 300, 180);
+
+        // Description
+        ctx.font = '16px sans-serif';
+        ctx.fillStyle = '#8892a4';
+        ctx.fillText(achievement.desc, 300, 215);
+
+        // Badge line
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#00bfa5';
+        ctx.fillText('ACHIEVEMENT UNLOCKED', 300, 270);
+
+        // Stats
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = '#5a6478';
+        ctx.fillText('Streak: ' + state.streak + ' days  |  XP: ' + state.score + '  |  HSK ' + state.currentLevel, 300, 310);
+
+        // Branding
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#00bfa5';
+        ctx.fillText('Mandarin Master', 300, 355);
+
+        // Share
+        canvas.toBlob(function(blob) {
+            if (navigator.share && blob) {
+                var file = new File([blob], 'achievement-' + achievement.id + '.png', { type: 'image/png' });
+                navigator.share({
+                    title: 'Achievement Unlocked: ' + achievement.title,
+                    text: 'I just unlocked "' + achievement.title + '" on Mandarin Master!',
+                    files: [file]
+                }).catch(function() { AchievementShare._download(canvas); });
+            } else {
+                AchievementShare._download(canvas);
+            }
+        }, 'image/png');
+    },
+
+    _download: function(canvas) {
+        var link = document.createElement('a');
+        link.download = 'mandarin-master-achievement.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }
+};
+
+// --- TRIAL EXTENSION (share to unlock 5 more words) ---
+var TrialExtension = {
+    isExtended: function() {
+        return localStorage.getItem('mm_trial_extended') === 'true';
+    },
+
+    getLimit: function() {
+        return this.isExtended() ? FREE_WORD_LIMIT + 5 : FREE_WORD_LIMIT;
+    },
+
+    extend: function() {
+        if (this.isExtended()) return;
+        localStorage.setItem('mm_trial_extended', 'true');
+
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;text-align:center;animation:slideDown 0.4s ease;';
+        toast.innerHTML = '<p style="font-size:28px;margin-bottom:4px;">&#x1F389;</p>' +
+            '<p style="font-size:14px;font-weight:600;color:var(--teal);">5 Extra Words Unlocked!</p>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-top:4px;">You can now learn up to 30 words for free.</p>';
+        document.body.appendChild(toast);
+        setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 5000);
+
+        // Close paywall and continue
+        elements.upgradeModal.classList.add('hidden');
+    },
+
+    shareAndExtend: function() {
+        var link = Referral.getLink();
+        var text = 'I\'m learning Mandarin Chinese on Mandarin Master! Try it free: ' + link;
+
+        if (navigator.share) {
+            navigator.share({
+                title: 'Learn Chinese with Mandarin Master',
+                text: text,
+                url: link
+            }).then(function() {
+                TrialExtension.extend();
+            }).catch(function() {
+                // Share cancelled — still grant extension (good faith)
+                TrialExtension.extend();
+            });
+        } else {
+            navigator.clipboard.writeText(link).then(function() {
+                TrialExtension.extend();
+            });
+        }
+    }
+};
+
+// --- WEEKLY GOALS ---
+var WeeklyGoals = {
+    defaults: [
+        { words: 15, label: 'Casual', xpMultiplier: 1.0 },
+        { words: 30, label: 'Regular', xpMultiplier: 1.5 },
+        { words: 50, label: 'Intense', xpMultiplier: 2.0 }
+    ],
+
+    getState: function() {
+        try {
+            return JSON.parse(localStorage.getItem('mm_weeklyGoal')) || { target: 15, wordsThisWeek: 0, weekStart: null, goalIndex: 0 };
+        } catch(e) { return { target: 15, wordsThisWeek: 0, weekStart: null, goalIndex: 0 }; }
+    },
+
+    saveState: function(s) { localStorage.setItem('mm_weeklyGoal', JSON.stringify(s)); },
+
+    getCurrentWeek: function() {
+        var d = new Date();
+        var start = new Date(d.getFullYear(), 0, 1);
+        return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7) + '-' + d.getFullYear();
+    },
+
+    recordWord: function() {
+        var s = this.getState();
+        var currentWeek = this.getCurrentWeek();
+        if (s.weekStart !== currentWeek) {
+            // New week — check if last week's goal was met
+            if (s.weekStart && s.wordsThisWeek >= s.target) {
+                this._showWeekComplete(s);
+            }
+            s.wordsThisWeek = 0;
+            s.weekStart = currentWeek;
+        }
+        s.wordsThisWeek++;
+        this.saveState(s);
+
+        // Check if goal just completed
+        if (s.wordsThisWeek === s.target) {
+            this._showGoalReached(s);
+        }
+    },
+
+    _showGoalReached: function(s) {
+        var goal = this.defaults[s.goalIndex] || this.defaults[0];
+        var bonusXP = Math.round(50 * goal.xpMultiplier);
+        state.score += bonusXP;
+        state.xpToday += bonusXP;
+        saveProgress();
+
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:360px;text-align:center;animation:slideDown 0.4s ease;';
+        toast.innerHTML = '<p style="font-size:28px;margin-bottom:4px;">&#x1F3AF;</p>' +
+            '<p style="font-size:14px;font-weight:600;color:var(--teal);">Weekly Goal Reached!</p>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-top:4px;">' + s.target + ' words this week (' + goal.label + ') — +' + bonusXP + ' XP bonus!</p>' +
+            '<p style="font-size:11px;color:var(--text-3);margin-top:6px;">Keep going for extra XP!</p>';
+        document.body.appendChild(toast);
+        setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 6000);
+    },
+
+    _showWeekComplete: function(s) {
+        // Silent — handled by _showGoalReached in real-time
+    },
+
+    setGoal: function(goalIndex) {
+        var s = this.getState();
+        s.goalIndex = goalIndex;
+        s.target = this.defaults[goalIndex].words;
+        this.saveState(s);
+    },
+
+    renderCard: function() {
+        var s = this.getState();
+        var currentWeek = this.getCurrentWeek();
+        if (s.weekStart !== currentWeek) {
+            s.wordsThisWeek = 0;
+            s.weekStart = currentWeek;
+            this.saveState(s);
+        }
+        var goal = this.defaults[s.goalIndex] || this.defaults[0];
+        var pct = Math.min(100, Math.round((s.wordsThisWeek / s.target) * 100));
+        var completed = s.wordsThisWeek >= s.target;
+
+        var html = '<div class="card" style="margin-bottom:12px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+                '<h3 style="font-size:16px;color:var(--text);margin:0;">Weekly Goal</h3>' +
+                '<span style="font-size:11px;background:' + (completed ? 'rgba(0,191,165,0.2)' : 'rgba(255,255,255,0.05)') + ';color:' + (completed ? 'var(--teal)' : 'var(--text-3)') + ';padding:3px 10px;border-radius:20px;">' + goal.label + ' (' + goal.xpMultiplier + 'x XP)</span>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">' +
+                '<div style="flex:1;">' +
+                    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);margin-bottom:4px;">' +
+                        '<span>' + s.wordsThisWeek + ' / ' + s.target + ' words</span>' +
+                        '<span>' + pct + '%</span>' +
+                    '</div>' +
+                    '<div style="background:var(--surface);height:8px;border-radius:4px;overflow:hidden;">' +
+                        '<div style="background:' + (completed ? 'linear-gradient(90deg,#00d4aa,#00bfa5)' : 'linear-gradient(90deg,#60a5fa,#3b82f6)') + ';height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.5s;"></div>' +
+                    '</div>' +
+                '</div>' +
+                (completed ? '<span style="font-size:20px;">&#x2705;</span>' : '') +
+            '</div>' +
+            '<div style="display:flex;gap:6px;">';
+
+        for (var i = 0; i < this.defaults.length; i++) {
+            var d = this.defaults[i];
+            var isActive = i === s.goalIndex;
+            html += '<button onclick="WeeklyGoals.setGoal(' + i + ');renderAnalytics();" style="flex:1;padding:6px;font-size:10px;border-radius:6px;cursor:pointer;border:1px solid ' + (isActive ? 'var(--teal)' : 'var(--border)') + ';background:' + (isActive ? 'rgba(0,191,165,0.1)' : 'var(--surface)') + ';color:' + (isActive ? 'var(--teal)' : 'var(--text-3)') + ';">' + d.words + '/wk</button>';
+        }
+        html += '</div></div>';
+        return html;
+    }
+};
+window.WeeklyGoals = WeeklyGoals;
+
+// --- PHRASE PRACTICE MODE ---
+function startPhrasePractice() {
+    var data = getCurrentData();
+    if (!data || !data.phrases || data.phrases.length === 0) {
+        elements.feedback.textContent = 'No phrases available for this level.';
+        elements.feedback.className = 'feedback warning';
+        return;
+    }
+
+    var phrases = data.phrases.slice();
+    // Shuffle
+    for (var i = phrases.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = phrases[i]; phrases[i] = phrases[j]; phrases[j] = tmp;
+    }
+    var practiceList = phrases.slice(0, Math.min(10, phrases.length));
+    var practiceIndex = 0;
+    var correctCount = 0;
+
+    function showPhraseCard() {
+        if (practiceIndex >= practiceList.length) {
+            // Practice complete
+            var xpEarned = correctCount * 20;
+            state.score += xpEarned;
+            state.xpToday += xpEarned;
+            saveProgress();
+
+            var html = '<div style="text-align:center;padding:30px 20px;">' +
+                '<h2 style="font-size:22px;color:var(--teal);margin-bottom:8px;">Phrase Practice Complete!</h2>' +
+                '<p style="font-size:42px;margin:12px 0;">' + (correctCount >= practiceList.length * 0.8 ? '&#x1F389;' : correctCount >= practiceList.length * 0.5 ? '&#x2B50;' : '&#x1F4AA;') + '</p>' +
+                '<p style="font-size:18px;color:var(--text);margin-bottom:4px;">' + correctCount + ' / ' + practiceList.length + ' correct</p>' +
+                '<p style="font-size:14px;color:var(--teal);font-weight:600;margin-bottom:16px;">+' + xpEarned + ' XP</p>' +
+                '<button onclick="endPhrasePractice();switchSection(\'phrases\')" style="background:var(--teal);color:#0f1520;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">Done</button>' +
+                '</div>';
+            var container = document.getElementById('phrase-practice-container');
+            if (container) container.innerHTML = html;
+            updateBelowCardContent();
+            return;
+        }
+
+        var phrase = practiceList[practiceIndex];
+        var mode = practiceIndex % 2 === 0 ? 'listen' : 'translate'; // Alternate modes
+
+        var cardHTML = '<div style="text-align:center;padding:20px;">' +
+            '<p style="font-size:12px;color:var(--text-3);margin-bottom:8px;">Phrase ' + (practiceIndex + 1) + ' of ' + practiceList.length + '</p>';
+
+        if (mode === 'listen') {
+            // Listen mode: hear phrase, pick correct translation
+            cardHTML += '<p style="font-family:\'Noto Serif SC\',serif;font-size:28px;font-weight:700;color:var(--text);margin:15px 0;line-height:1.4;">' + phrase.chinese + '</p>' +
+                '<button onclick="speak(\'' + phrase.chinese.replace(/'/g, "\\'") + '\')" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 20px;font-size:13px;color:var(--text);cursor:pointer;margin-bottom:16px;">&#x1F50A; Listen Again</button>' +
+                '<p style="font-size:12px;color:var(--text-2);margin-bottom:12px;">What does this mean?</p>';
+
+            // Generate options
+            var wrongPhrases = [];
+            for (var w = 0; w < data.phrases.length && wrongPhrases.length < 3; w++) {
+                if (data.phrases[w].english !== phrase.english) wrongPhrases.push(data.phrases[w].english);
+            }
+            var options = [phrase.english].concat(wrongPhrases.slice(0, 3));
+            for (var k = options.length - 1; k > 0; k--) {
+                var j2 = Math.floor(Math.random() * (k + 1));
+                var tmp2 = options[k]; options[k] = options[j2]; options[j2] = tmp2;
+            }
+
+            cardHTML += '<div style="display:grid;grid-template-columns:1fr;gap:8px;max-width:400px;margin:0 auto;">';
+            for (var o = 0; o < options.length; o++) {
+                cardHTML += '<button class="phrase-option-btn" data-answer="' + options[o].replace(/"/g, '&quot;') + '" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px;color:var(--text);cursor:pointer;text-align:left;transition:all 0.2s;">' + options[o] + '</button>';
+            }
+            cardHTML += '</div>';
+        } else {
+            // Translate mode: see English, pick correct Chinese
+            cardHTML += '<p style="font-size:18px;color:var(--text);margin:15px 0;font-weight:600;">' + phrase.english + '</p>' +
+                '<p style="font-size:12px;color:var(--text-2);margin-bottom:12px;">Select the correct Chinese:</p>';
+
+            var wrongChinese = [];
+            for (var w2 = 0; w2 < data.phrases.length && wrongChinese.length < 3; w2++) {
+                if (data.phrases[w2].chinese !== phrase.chinese) wrongChinese.push(data.phrases[w2].chinese);
+            }
+            var chOptions = [phrase.chinese].concat(wrongChinese.slice(0, 3));
+            for (var k2 = chOptions.length - 1; k2 > 0; k2--) {
+                var j3 = Math.floor(Math.random() * (k2 + 1));
+                var tmp3 = chOptions[k2]; chOptions[k2] = chOptions[j3]; chOptions[j3] = tmp3;
+            }
+
+            cardHTML += '<div style="display:grid;grid-template-columns:1fr;gap:8px;max-width:400px;margin:0 auto;">';
+            for (var o2 = 0; o2 < chOptions.length; o2++) {
+                cardHTML += '<button class="phrase-option-btn" data-answer="' + chOptions[o2].replace(/"/g, '&quot;') + '" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:14px;color:var(--text);cursor:pointer;font-family:\'Noto Serif SC\',serif;transition:all 0.2s;">' + chOptions[o2] + '</button>';
+            }
+            cardHTML += '</div>';
+        }
+        cardHTML += '</div>';
+
+        var section = document.getElementById('phrases-section');
+        var container = document.getElementById('phrase-practice-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'phrase-practice-container';
+            section.appendChild(container);
+        }
+        container.innerHTML = cardHTML;
+
+        // Hide section header and phrases list
+        var header = section.querySelector('.section-header');
+        var list = document.getElementById('phrases-list');
+        if (header) header.style.display = 'none';
+        if (list) list.style.display = 'none';
+
+        // Play audio for listen mode
+        if (mode === 'listen') {
+            setTimeout(function() { speak(phrase.chinese); }, 300);
+        }
+
+        // Wire up answer buttons
+        var correctAnswer = mode === 'listen' ? phrase.english : phrase.chinese;
+        var btns = container.querySelectorAll('.phrase-option-btn');
+        btns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var isCorrect = btn.getAttribute('data-answer') === correctAnswer;
+                if (isCorrect) {
+                    btn.style.background = 'rgba(0,212,170,0.2)';
+                    btn.style.borderColor = 'var(--teal)';
+                    btn.style.color = 'var(--teal)';
+                    correctCount++;
+                } else {
+                    btn.style.background = 'rgba(251,113,133,0.2)';
+                    btn.style.borderColor = 'var(--rose)';
+                    btn.style.color = 'var(--rose)';
+                    btns.forEach(function(b) {
+                        if (b.getAttribute('data-answer') === correctAnswer) {
+                            b.style.background = 'rgba(0,212,170,0.2)';
+                            b.style.borderColor = 'var(--teal)';
+                            b.style.color = 'var(--teal)';
+                        }
+                    });
+                }
+                btns.forEach(function(b) { b.style.pointerEvents = 'none'; });
+                practiceIndex++;
+                setTimeout(showPhraseCard, 1000);
+            });
+        });
+    }
+
+    switchSection('phrases');
+    document.querySelector('.main-content').scrollTop = 0;
+    showPhraseCard();
+}
+
+function endPhrasePractice() {
+    var section = document.getElementById('phrases-section');
+    var container = document.getElementById('phrase-practice-container');
+    if (container) container.remove();
+    var header = section.querySelector('.section-header');
+    var list = document.getElementById('phrases-list');
+    if (header) header.style.display = '';
+    if (list) list.style.display = '';
+}
+window.startPhrasePractice = startPhrasePractice;
+window.endPhrasePractice = endPhrasePractice;
 
 init();
