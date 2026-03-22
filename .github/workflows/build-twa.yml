@@ -3,15 +3,6 @@ name: Build TWA (Android APK/AAB)
 on:
   workflow_dispatch:
     inputs:
-      build_type:
-        description: 'Build type'
-        required: true
-        default: 'apk'
-        type: choice
-        options:
-          - apk
-          - aab
-          - both
       version_code:
         description: 'Version code (integer)'
         required: true
@@ -40,9 +31,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Bubblewrap CLI
-        run: npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @nicolo-nicolo/nicolo-bubblewrap@latest 2>/dev/null || npm install -g @bubblewrap/cli
-
       - name: Generate signing keystore
         run: |
           keytool -genkeypair \
@@ -50,117 +38,112 @@ jobs:
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -keystore ${{ github.workspace }}/mandarin-master.keystore \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
-            -keypass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keystore $GITHUB_WORKSPACE/mandarin-master.keystore \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -keypass "${{ secrets.KEYSTORE_PASSWORD }}" \
             -dname "CN=Mandarin Master, OU=Apps, O=MandarinMaster, L=Unknown, ST=Unknown, C=US"
 
-      - name: Extract signing fingerprint
+      - name: Extract SHA-256 fingerprint
         id: fingerprint
         run: |
           FINGERPRINT=$(keytool -list -v \
-            -keystore ${{ github.workspace }}/mandarin-master.keystore \
+            -keystore $GITHUB_WORKSPACE/mandarin-master.keystore \
             -alias mandarin-master \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} | grep "SHA256:" | sed 's/.*SHA256: //')
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA256:" | sed 's/.*SHA256: //')
           echo "sha256=$FINGERPRINT" >> $GITHUB_OUTPUT
           echo "::notice::SHA-256 Fingerprint: $FINGERPRINT"
-          echo ""
-          echo "=========================================="
-          echo "UPDATE .well-known/assetlinks.json with:"
-          echo "$FINGERPRINT"
-          echo "=========================================="
 
-      - name: Initialize TWA project
+      - name: Install Bubblewrap CLI
+        run: npm install -g @bubblewrap/cli
+
+      - name: Configure Bubblewrap to use existing SDK
         run: |
-          mkdir -p twa-build && cd twa-build
+          # Create bubblewrap config to skip SDK download
+          mkdir -p $HOME/.aspect
+          mkdir -p $HOME/.nicolo-nicolo/nicolo-nicolo/nicolo-bubblewrap
+          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
 
-          # Create twaManifest.json for bubblewrap
-          cat > twaManifest.json << EOF
+          # Tell bubblewrap where the existing JDK and SDK are
+          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
           {
-            "packageId": "app.netlify.mandarin_master.twa",
-            "host": "mandarin-master.netlify.app",
-            "name": "Mandarin Master - Learn Chinese HSK",
-            "launcherName": "Mandarin Master",
-            "display": "standalone",
-            "themeColor": "#0f1520",
-            "themeColorDark": "#0f1520",
-            "navigationColor": "#0f1520",
-            "navigationColorDark": "#0f1520",
-            "navigationDividerColor": "#0f1520",
-            "navigationDividerColorDark": "#0f1520",
-            "backgroundColor": "#0f1520",
-            "enableNotifications": false,
-            "startUrl": "/",
-            "iconUrl": "https://mandarin-master.netlify.app/icons/icon-512.png",
-            "maskableIconUrl": "https://mandarin-master.netlify.app/icons/icon-512.png",
-            "splashScreenFadeOutDuration": 300,
-            "signingKey": {
-              "path": "${{ github.workspace }}/mandarin-master.keystore",
-              "alias": "mandarin-master"
-            },
-            "appVersionCode": ${{ inputs.version_code }},
-            "appVersionName": "${{ inputs.version_name }}",
-            "shortcuts": [],
-            "generatorApp": "bubblewrap-cli",
-            "webManifestUrl": "https://mandarin-master.netlify.app/manifest.json",
-            "fallbackType": "customtabs",
-            "features": {},
-            "enableSiteSettingsShortcut": true,
-            "isChromeOSOnly": false,
-            "isMetaQuest": false,
-            "fullScopeUrl": "https://mandarin-master.netlify.app/",
-            "minSdkVersion": 19,
-            "fingerprints": [
-              {
-                "type": "SHA-256",
-                "value": "${{ steps.fingerprint.outputs.sha256 }}"
-              }
-            ]
+            "jdkPath": "$JAVA_HOME",
+            "androidSdkPath": "/usr/local/lib/android/sdk"
           }
           EOF
 
-          # Set ANDROID_HOME for bubblewrap
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-
-          # Initialize bubblewrap project (non-interactive)
-          echo "y" | bubblewrap init --manifest="https://mandarin-master.netlify.app/manifest.json" 2>&1 || {
-            echo "bubblewrap init from manifest failed, trying with local twaManifest..."
-            echo "y" | bubblewrap init --manifest=twaManifest.json 2>&1 || true
+          # Also try the bubblewrap config location
+          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
+          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
+          {
+            "jdkPath": "$JAVA_HOME",
+            "androidSdkPath": "/usr/local/lib/android/sdk"
           }
+          EOF
+
+          # Try standard config location
+          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
+          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
+          {
+            "jdkPath": "$JAVA_HOME",
+            "androidSdkPath": "/usr/local/lib/android/sdk"
+          }
+          EOF
+
+      - name: Initialize and build TWA
+        run: |
+          mkdir -p twa-build && cd twa-build
+
+          # Set env vars for bubblewrap
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+
+          # Answer "No" to SDK download question, then provide paths
+          printf 'n\n/usr/local/lib/android/sdk\n%s\n' "$JAVA_HOME" | bubblewrap init \
+            --manifest="https://mandarin-master.netlify.app/manifest.json" \
+            --directory=. 2>&1 || {
+            echo "First init attempt failed, trying alternative..."
+            echo "n" | bubblewrap init \
+              --manifest="https://mandarin-master.netlify.app/manifest.json" 2>&1 || true
+          }
+
+          echo "=== Project files after init ==="
+          ls -la
 
       - name: Build APK and AAB
         working-directory: twa-build
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
 
-          # Try bubblewrap build first
-          bubblewrap build \
-            --signingKeyPath ${{ github.workspace }}/mandarin-master.keystore \
-            --signingKeyAlias mandarin-master 2>&1 || {
-            echo "bubblewrap build failed, trying gradle directly..."
+          if [ -f "twaManifest.json" ] || [ -f "build.gradle" ] || [ -f "gradlew" ]; then
+            # If bubblewrap created a project, try building
             if [ -f "gradlew" ]; then
+              echo "Building with Gradle..."
               chmod +x gradlew
-              ./gradlew assembleRelease bundleRelease 2>&1 || ./gradlew assembleRelease 2>&1 || true
+              ./gradlew assembleRelease 2>&1 || true
+              ./gradlew bundleRelease 2>&1 || true
+            else
+              echo "Trying bubblewrap build..."
+              bubblewrap build 2>&1 || true
             fi
-          }
+          else
+            echo "No project was created. Using PWABuilder web interface instead."
+            echo "Go to https://www.pwabuilder.com and enter https://mandarin-master.netlify.app"
+          fi
 
-          echo "=== Build outputs ==="
-          find . -name "*.apk" -o -name "*.aab" 2>/dev/null
-        env:
-          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          echo "=== Looking for build outputs ==="
+          find . -name "*.apk" -o -name "*.aab" 2>/dev/null || echo "No APK/AAB found"
 
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
           find twa-build -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
           find twa-build -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
-          cp mandarin-master.keystore artifacts/ 2>/dev/null || true
-          echo "=== Artifacts ==="
+          cp $GITHUB_WORKSPACE/mandarin-master.keystore artifacts/ 2>/dev/null || true
+          echo "=== Collected artifacts ==="
           ls -la artifacts/
 
       - name: Upload APK
-        if: inputs.build_type == 'apk' || inputs.build_type == 'both'
         uses: actions/upload-artifact@v4
         with:
           name: mandarin-master-apk
@@ -168,7 +151,6 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload AAB
-        if: inputs.build_type == 'aab' || inputs.build_type == 'both'
         uses: actions/upload-artifact@v4
         with:
           name: mandarin-master-aab
@@ -179,18 +161,29 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: signing-keystore
-          path: mandarin-master.keystore
-          retention-days: 1
+          path: artifacts/mandarin-master.keystore
+          retention-days: 3
 
-      - name: Summary
+      - name: Build Summary
         run: |
-          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## TWA Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**SHA-256 Fingerprint:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download artifacts from this run" >> $GITHUB_STEP_SUMMARY
-          echo "2. Update \`.well-known/assetlinks.json\` with the SHA-256 fingerprint above" >> $GITHUB_STEP_SUMMARY
-          echo "3. Upload APK/AAB to Google Play Console" >> $GITHUB_STEP_SUMMARY
-          echo "4. Upload APK to Amazon Appstore" >> $GITHUB_STEP_SUMMARY
-          echo "5. Upload APK to Huawei AppGallery" >> $GITHUB_STEP_SUMMARY
+          echo "### Update assetlinks.json" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          echo '[{' >> $GITHUB_STEP_SUMMARY
+          echo '  "relation": ["delegate_permission/common.handle_all_urls"],' >> $GITHUB_STEP_SUMMARY
+          echo '  "target": {' >> $GITHUB_STEP_SUMMARY
+          echo '    "namespace": "android_app",' >> $GITHUB_STEP_SUMMARY
+          echo '    "package_name": "app.netlify.mandarin_master.twa",' >> $GITHUB_STEP_SUMMARY
+          echo '    "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"]' >> $GITHUB_STEP_SUMMARY
+          echo '  }' >> $GITHUB_STEP_SUMMARY
+          echo '}]' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### If no APK/AAB was produced:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Go to https://www.pwabuilder.com" >> $GITHUB_STEP_SUMMARY
+          echo "2. Enter: https://mandarin-master.netlify.app" >> $GITHUB_STEP_SUMMARY
+          echo "3. Click Package → Android" >> $GITHUB_STEP_SUMMARY
+          echo "4. Download the APK/AAB and sign with the keystore from artifacts" >> $GITHUB_STEP_SUMMARY
