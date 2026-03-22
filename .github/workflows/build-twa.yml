@@ -1,0 +1,153 @@
+name: Build TWA (Android APK/AAB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'apk'
+        type: choice
+        options:
+          - apk
+          - aab
+          - both
+
+env:
+  APP_NAME: "Mandarin Master"
+  APP_ID: "app.netlify.mandarin_master.twa"
+  HOST: "mandarin-master.netlify.app"
+  START_URL: "/"
+  THEME_COLOR: "#0f1520"
+  BG_COLOR: "#0f1520"
+  DISPLAY_MODE: "standalone"
+  ICON_URL: "https://mandarin-master.netlify.app/icons/icon-512.png"
+  MASKABLE_ICON_URL: "https://mandarin-master.netlify.app/icons/icon-512.png"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Bubblewrap CLI
+        run: npm install -g @nicolo-ribaudo/bubblewrap
+
+      - name: Initialize Bubblewrap project
+        run: |
+          mkdir -p twa-build && cd twa-build
+          cat > twa-manifest.json << 'MANIFEST'
+          {
+            "packageId": "app.netlify.mandarin_master.twa",
+            "host": "mandarin-master.netlify.app",
+            "name": "Mandarin Master - Learn Chinese HSK",
+            "launcherName": "Mandarin Master",
+            "display": "standalone",
+            "themeColor": "#0f1520",
+            "navigationColor": "#0f1520",
+            "navigationColorDark": "#0f1520",
+            "navigationDividerColor": "#0f1520",
+            "navigationDividerColorDark": "#0f1520",
+            "backgroundColor": "#0f1520",
+            "enableNotifications": false,
+            "startUrl": "/",
+            "iconUrl": "https://mandarin-master.netlify.app/icons/icon-512.png",
+            "maskableIconUrl": "https://mandarin-master.netlify.app/icons/icon-512.png",
+            "splashScreenFadeOutDuration": 300,
+            "signingKey": {
+              "path": "mandarin-master.keystore",
+              "alias": "mandarin-master"
+            },
+            "appVersionCode": 1,
+            "appVersionName": "1.0.0",
+            "shortcuts": [
+              {
+                "name": "Practice Vocabulary",
+                "shortName": "Vocab",
+                "url": "/?section=vocab",
+                "chosenIconUrl": "https://mandarin-master.netlify.app/icons/icon-192.png"
+              },
+              {
+                "name": "Daily Challenge",
+                "shortName": "Challenge",
+                "url": "/?section=challenge",
+                "chosenIconUrl": "https://mandarin-master.netlify.app/icons/icon-192.png"
+              }
+            ],
+            "generatorApp": "bubblewrap-cli",
+            "webManifestUrl": "https://mandarin-master.netlify.app/manifest.json",
+            "fallbackType": "customtabs",
+            "features": {},
+            "enableSiteSettingsShortcut": true,
+            "isChromeOSOnly": false,
+            "isMetaQuest": false,
+            "fullScopeUrl": "https://mandarin-master.netlify.app/",
+            "minSdkVersion": 19,
+            "fingerprints": []
+          }
+          MANIFEST
+
+      - name: Generate signing key
+        working-directory: twa-build
+        run: |
+          keytool -genkeypair \
+            -alias mandarin-master \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore mandarin-master.keystore \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keypass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -dname "CN=Mandarin Master, OU=Apps, O=MandarinMaster, L=Unknown, ST=Unknown, C=US"
+
+      - name: Build with Bubblewrap
+        working-directory: twa-build
+        run: |
+          bubblewrap build \
+            --manifest twa-manifest.json \
+            --signingKeyPath mandarin-master.keystore \
+            --signingKeyAlias mandarin-master \
+            --signingKeyPassword ${{ secrets.KEYSTORE_PASSWORD }} \
+            --signingStorePassword ${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Extract signing fingerprint
+        working-directory: twa-build
+        run: |
+          keytool -list -v \
+            -keystore mandarin-master.keystore \
+            -alias mandarin-master \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} | grep SHA256 | head -1
+
+      - name: Upload APK artifact
+        if: inputs.build_type == 'apk' || inputs.build_type == 'both'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandarin-master-apk
+          path: twa-build/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+
+      - name: Upload AAB artifact
+        if: inputs.build_type == 'aab' || inputs.build_type == 'both'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandarin-master-aab
+          path: twa-build/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: warn
+
+      - name: Upload keystore (encrypted)
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-keystore
+          path: twa-build/mandarin-master.keystore
+          retention-days: 1

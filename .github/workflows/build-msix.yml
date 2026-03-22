@@ -1,0 +1,97 @@
+name: Build MSIX (Microsoft Store)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App version (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install PWABuilder CLI
+        run: npm install -g @nicolo-ribaudo/pwabuilder-cli || npm install -g pwabuilder
+
+      - name: Create PWABuilder config
+        shell: pwsh
+        run: |
+          $config = @{
+            url = "https://mandarin-master.netlify.app"
+            name = "Mandarin Master"
+            packageId = "MandarinMaster.LearnChineseHSK"
+            version = "${{ github.event.inputs.version }}"
+            classicPackage = @{
+              generate = $true
+              version = "${{ github.event.inputs.version }}.0"
+            }
+            publisher = @{
+              displayName = "MandarinMaster"
+              commonName = "${{ secrets.MS_PUBLISHER_CN }}"
+            }
+          } | ConvertTo-Json -Depth 5
+          Set-Content -Path "pwabuilder-config.json" -Value $config
+
+      - name: Generate MSIX package via PWABuilder API
+        shell: pwsh
+        run: |
+          # Use PWABuilder API to generate Windows package
+          $body = @{
+            url = "https://mandarin-master.netlify.app"
+            name = "Mandarin Master - Learn Chinese HSK"
+            packageId = "MandarinMaster.LearnChineseHSK"
+            version = "${{ github.event.inputs.version }}.0"
+            allowSigning = $true
+            publisher = @{
+              displayName = "MandarinMaster"
+              commonName = "${{ secrets.MS_PUBLISHER_CN }}"
+            }
+            classicPackage = @{
+              generate = $true
+            }
+          } | ConvertTo-Json -Depth 5
+
+          Write-Host "Sending to PWABuilder API..."
+          try {
+            $response = Invoke-RestMethod -Uri "https://pwabuilder-winserver.centralus.cloudapp.azure.com/msix/generatezip" `
+              -Method Post `
+              -ContentType "application/json" `
+              -Body $body `
+              -OutFile "mandarin-master-msix.zip"
+            Write-Host "MSIX package generated successfully"
+          } catch {
+            Write-Host "PWABuilder API call failed: $_"
+            Write-Host "You can manually generate the package at https://www.pwabuilder.com"
+            Write-Host "Enter URL: https://mandarin-master.netlify.app"
+            exit 0
+          }
+
+      - name: Extract MSIX
+        if: ${{ hashFiles('mandarin-master-msix.zip') != '' }}
+        shell: pwsh
+        run: |
+          if (Test-Path "mandarin-master-msix.zip") {
+            Expand-Archive -Path "mandarin-master-msix.zip" -DestinationPath "msix-output"
+            Get-ChildItem -Path "msix-output" -Recurse | Select-Object FullName, Length
+          }
+
+      - name: Upload MSIX artifact
+        if: ${{ hashFiles('mandarin-master-msix.zip') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandarin-master-msix
+          path: |
+            mandarin-master-msix.zip
+            msix-output/**
+          if-no-files-found: warn

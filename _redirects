@@ -4,5 +4,8 @@
 /terms  /support.html  200
 /reset-password  /reset-password.html  200
 
+# Digital Asset Links for TWA verification
+/.well-known/assetlinks.json  /.well-known/assetlinks.json  200
+
 # Custom 404
 /*  /404.html  404

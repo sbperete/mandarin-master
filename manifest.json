@@ -1,28 +1,74 @@
 {
-  "name": "Mandarin Master",
+  "name": "Mandarin Master - Learn Chinese HSK",
   "short_name": "MandarinMaster",
-  "description": "Master Mandarin Chinese with interactive HSK vocabulary, character stroke tracing, and pronunciation training. HSK 1-6 complete.",
+  "description": "Master Mandarin Chinese with 4,597 interactive HSK vocabulary words, character stroke tracing, spaced repetition, and pronunciation training. HSK 1-6 complete coverage from beginner to advanced.",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#0f1520",
   "theme_color": "#0f1520",
   "orientation": "portrait-primary",
+  "scope": "/",
   "categories": ["education", "language"],
+  "iarc_rating_id": "",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
-  "screenshots": [],
+  "screenshots": [
+    {
+      "src": "tiktok_assets/10_app_vocab_card.png",
+      "sizes": "1080x2400",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Vocabulary Practice with Character Writing"
+    },
+    {
+      "src": "tiktok_assets/11_app_features_pro.png",
+      "sizes": "1080x2400",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Features & Pro Upgrade"
+    }
+  ],
   "lang": "en",
-  "dir": "ltr"
+  "dir": "ltr",
+  "related_applications": [],
+  "shortcuts": [
+    {
+      "name": "Practice Vocabulary",
+      "short_name": "Vocab",
+      "url": "/?section=vocab",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Daily Challenge",
+      "short_name": "Challenge",
+      "url": "/?section=challenge",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
 }
