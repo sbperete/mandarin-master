@@ -618,7 +618,16 @@ function updateStreak() {
     } else if (state.lastStudyDate === yesterday) {
         state.streak++;
     } else {
-        state.streak = 1; // Reset if gap > 1 day
+        // Check streak shield before resetting
+        if (state.streak >= 2 && StreakShield.checkAndProtect()) {
+            // Shield saved the streak — keep it and continue
+            state.streak++;
+            setTimeout(function() { StreakShield.showShieldUsed(); }, 2000);
+        } else {
+            // Check for comeback bonus before resetting
+            StreakShield.showComebackBonus();
+            state.streak = 1; // Reset if gap > 1 day
+        }
     }
     state.lastStudyDate = today;
     localStorage.setItem('mm_streak', state.streak);
@@ -640,6 +649,20 @@ function updateBelowCardContent() {
     // Hide upsell if premium
     if (elements.upsellCard && state.isPremium) {
         elements.upsellCard.style.display = 'none';
+    }
+
+    // Premium teaser for free users on HSK1
+    var teaserContainer = document.getElementById('premium-teaser-slot');
+    if (!teaserContainer) {
+        var belowCard = document.getElementById('below-card-content');
+        if (belowCard) {
+            teaserContainer = document.createElement('div');
+            teaserContainer.id = 'premium-teaser-slot';
+            belowCard.appendChild(teaserContainer);
+        }
+    }
+    if (teaserContainer) {
+        teaserContainer.innerHTML = PremiumTeaser.render();
     }
 
     // SRS due count on Quick Drill button
@@ -1099,7 +1122,7 @@ function setupEventListeners() {
         const level = parseInt(e.target.value);
         if (level >= 2 && !state.isPremium) {
             e.target.value = state.currentLevel;
-            showPaywall();
+            UpgradeNudge.showLevelFomo(level);
             return;
         }
         loadLevel(level);
@@ -1113,7 +1136,7 @@ function setupEventListeners() {
             const level = parseInt(e.target.value);
             if (level >= 2 && !state.isPremium) {
                 e.target.value = state.currentLevel;
-                showPaywall();
+                UpgradeNudge.showLevelFomo(level);
                 return;
             }
             elements.levelSelect.value = level;
@@ -1491,6 +1514,14 @@ function setupAuthListeners() {
 
             // Check achievements
             Achievements.checkAll();
+
+            // Daily login reward (show after 1s to not overwhelm)
+            setTimeout(function() { DailyRewards.showPopup(); }, 1000);
+
+            // Offer banner for free users (show after 5s)
+            if (!state.isPremium) {
+                setTimeout(function() { OfferBanner.show(); }, 5000);
+            }
         } else {
             state.user = null;
             state.isLoggedIn = false;
@@ -1841,6 +1872,15 @@ function handleNextWord() {
         loadWord(state.currentWordIndex);
         saveProgress();
         updateBelowCardContent();
+
+        // Smart nudges at milestones
+        if ([10, 15, 20].indexOf(state.currentWordIndex) !== -1) {
+            UpgradeNudge.showMilestoneNudge(state.currentWordIndex);
+        }
+        // Pre-paywall teaser at word 20+
+        if (state.currentWordIndex >= 20) {
+            UpgradeNudge.showPrePaywallTeaser();
+        }
     } else {
         elements.feedback.textContent = "🎉 Level Vocabulary Completed! Phrases Unlocked.";
         elements.feedback.className = 'feedback success';
@@ -3102,6 +3142,314 @@ var PushReminder = {
             // Auto-dismiss after 15 seconds
             setTimeout(function() { if (toast.parentNode) toast.remove(); }, 15000);
         }, 30000);
+    }
+};
+
+// --- SMART UPGRADE NUDGES ---
+var UpgradeNudge = {
+    // Soft nudge at word 20 (5 words before paywall)
+    showPrePaywallTeaser: function() {
+        if (state.isPremium || state.currentWordIndex < 20 || state.currentWordIndex >= FREE_WORD_LIMIT) return;
+        if (sessionStorage.getItem('mm_nudge_20')) return;
+        sessionStorage.setItem('mm_nudge_20', 'true');
+
+        var remaining = FREE_WORD_LIMIT - state.currentWordIndex;
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:99998;background:linear-gradient(135deg,rgba(0,191,165,0.15),rgba(0,212,170,0.1));border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:360px;width:calc(100% - 32px);text-align:center;animation:slideDown 0.4s ease;';
+        toast.innerHTML = '<p style="font-size:14px;font-weight:600;color:var(--teal);margin-bottom:6px;">You\'re on fire!</p>' +
+            '<p style="font-size:13px;color:var(--text);margin-bottom:10px;">Only <strong>' + remaining + ' free words</strong> left. Unlock all 4,597 words across HSK 1-6.</p>' +
+            '<div style="display:flex;gap:8px;justify-content:center;">' +
+            '<button id="nudge-upgrade" style="background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;">Upgrade — $9.99</button>' +
+            '<button id="nudge-dismiss" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text-2);cursor:pointer;">Later</button></div>';
+        document.body.appendChild(toast);
+        document.getElementById('nudge-upgrade').addEventListener('click', function() { toast.remove(); showPaywall(); });
+        document.getElementById('nudge-dismiss').addEventListener('click', function() { toast.remove(); });
+        setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 12000);
+    },
+
+    // Nudge when user taps locked HSK levels (more compelling than plain paywall)
+    showLevelFomo: function(level) {
+        var data = levelData[level];
+        if (!data || !data.vocab) return;
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99998;background:var(--bg);border:1px solid var(--teal);border-radius:16px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);max-width:380px;width:calc(100% - 32px);text-align:center;animation:slideDown 0.3s ease;';
+        toast.innerHTML = '<div style="font-size:36px;margin-bottom:8px;">&#x1F513;</div>' +
+            '<h3 style="font-size:18px;color:var(--text);margin-bottom:6px;">Unlock HSK ' + level + '</h3>' +
+            '<p style="font-size:13px;color:var(--text-2);margin-bottom:16px;">' + data.vocab.length + ' words · ' + (data.phrases ? data.phrases.length : 0) + ' phrases · Immersive stories</p>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:16px;">' +
+                '<span style="font-size:11px;background:rgba(0,191,165,0.1);color:var(--teal);padding:4px 10px;border-radius:20px;">SRS Review</span>' +
+                '<span style="font-size:11px;background:rgba(0,191,165,0.1);color:var(--teal);padding:4px 10px;border-radius:20px;">Daily Challenge</span>' +
+                '<span style="font-size:11px;background:rgba(0,191,165,0.1);color:var(--teal);padding:4px 10px;border-radius:20px;">Mock HSK</span>' +
+            '</div>' +
+            '<button id="fomo-upgrade" style="width:100%;background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">Unlock Everything — $9.99 Lifetime</button>' +
+            '<button id="fomo-close" style="background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;">Not now</button>';
+        document.body.appendChild(toast);
+        document.getElementById('fomo-upgrade').addEventListener('click', function() { toast.remove(); showPaywall(); });
+        document.getElementById('fomo-close').addEventListener('click', function() { toast.remove(); });
+    },
+
+    // Milestone nudge — after completing specific word counts
+    showMilestoneNudge: function(wordCount) {
+        if (state.isPremium) return;
+        var milestones = { 10: 'double-digit', 15: 'halfway there', 20: 'getting serious' };
+        var label = milestones[wordCount];
+        if (!label) return;
+        var data = getCurrentData();
+        var total = data ? data.vocab.length : 150;
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99998;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:360px;text-align:center;animation:slideDown 0.4s ease;';
+        toast.innerHTML = '<p style="font-size:24px;margin-bottom:4px;">&#x1F389;</p>' +
+            '<p style="font-size:14px;font-weight:600;color:var(--text);">' + wordCount + ' words learned!</p>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-top:4px;">' + (total - wordCount) + ' more in this level · ' + label + '</p>' +
+            '<div style="background:var(--surface);height:4px;border-radius:2px;overflow:hidden;margin-bottom:8px;"><div style="background:var(--teal);height:100%;width:' + Math.round((wordCount / total) * 100) + '%;border-radius:2px;"></div></div>';
+        if (wordCount >= 15) {
+            toast.innerHTML += '<p style="font-size:11px;color:var(--teal);cursor:pointer;margin-top:8px;" onclick="this.parentNode.remove();showPaywall();">Unlock unlimited words &#x2192;</p>';
+        }
+        document.body.appendChild(toast);
+        setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 5000);
+    }
+};
+
+// --- DAILY LOGIN REWARDS ---
+var DailyRewards = {
+    rewards: [
+        { day: 1, xp: 10, label: '10 XP' },
+        { day: 2, xp: 20, label: '20 XP' },
+        { day: 3, xp: 30, label: '30 XP' },
+        { day: 4, xp: 40, label: '40 XP' },
+        { day: 5, xp: 50, label: '50 XP' },
+        { day: 6, xp: 75, label: '75 XP' },
+        { day: 7, xp: 100, label: '100 XP + Bonus' }
+    ],
+
+    getState: function() {
+        try { return JSON.parse(localStorage.getItem('mm_dailyRewards')) || { lastClaim: null, streak: 0 }; } catch(e) { return { lastClaim: null, streak: 0 }; }
+    },
+
+    saveState: function(s) { localStorage.setItem('mm_dailyRewards', JSON.stringify(s)); },
+
+    canClaim: function() {
+        var s = this.getState();
+        var today = new Date().toDateString();
+        return s.lastClaim !== today;
+    },
+
+    claim: function() {
+        var s = this.getState();
+        var today = new Date().toDateString();
+        if (s.lastClaim === today) return null;
+
+        var yesterday = new Date(Date.now() - 86400000).toDateString();
+        if (s.lastClaim === yesterday) {
+            s.streak = Math.min(s.streak + 1, 7);
+        } else if (s.lastClaim !== today) {
+            s.streak = 1;
+        }
+        s.lastClaim = today;
+        this.saveState(s);
+
+        var dayIndex = Math.min(s.streak - 1, this.rewards.length - 1);
+        var reward = this.rewards[dayIndex];
+        state.score += reward.xp;
+        state.xpToday += reward.xp;
+        saveProgress();
+        return { day: s.streak, reward: reward };
+    },
+
+    showPopup: function() {
+        if (!this.canClaim()) return;
+        var result = this.claim();
+        if (!result) return;
+
+        var s = this.getState();
+        var popup = document.createElement('div');
+        popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:var(--bg);border:1px solid var(--teal);border-radius:18px;padding:28px 24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);max-width:380px;width:calc(100% - 32px);text-align:center;animation:slideDown 0.3s ease;';
+
+        var calHTML = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:16px;">';
+        for (var i = 0; i < 7; i++) {
+            var r = this.rewards[i];
+            var isClaimed = i < s.streak;
+            var isToday = i === s.streak - 1;
+            calHTML += '<div style="text-align:center;padding:8px 2px;border-radius:8px;' +
+                (isToday ? 'background:rgba(0,191,165,0.2);border:1px solid var(--teal);' :
+                 isClaimed ? 'background:rgba(0,191,165,0.08);border:1px solid rgba(0,191,165,0.2);' :
+                 'background:var(--surface);border:1px solid var(--border);') + '">' +
+                '<div style="font-size:10px;color:var(--text-3);">Day ' + (i + 1) + '</div>' +
+                '<div style="font-size:14px;margin:2px 0;">' + (isClaimed ? '&#x2705;' : (i === 6 ? '&#x1F381;' : '&#x1F3AF;')) + '</div>' +
+                '<div style="font-size:9px;color:' + (isClaimed ? 'var(--teal)' : 'var(--text-3)') + ';">' + r.label + '</div>' +
+            '</div>';
+        }
+        calHTML += '</div>';
+
+        popup.innerHTML = '<p style="font-size:32px;margin-bottom:4px;">&#x1F381;</p>' +
+            '<h3 style="font-size:18px;color:var(--text);margin-bottom:4px;">Daily Reward!</h3>' +
+            '<p style="font-size:14px;color:var(--teal);font-weight:600;margin-bottom:16px;">Day ' + result.day + ': +' + result.reward.xp + ' XP</p>' +
+            calHTML +
+            (s.streak >= 7 ? '<p style="font-size:12px;color:var(--teal);margin-bottom:12px;">7-day streak complete! Bonus 50 XP!</p>' : '') +
+            '<button id="daily-reward-close" style="width:100%;background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;">Collect & Study!</button>';
+
+        document.body.appendChild(popup);
+
+        // 7-day streak bonus
+        if (s.streak >= 7) {
+            state.score += 50;
+            state.xpToday += 50;
+            s.streak = 0; // Reset cycle
+            this.saveState(s);
+            saveProgress();
+        }
+
+        document.getElementById('daily-reward-close').addEventListener('click', function() { popup.remove(); });
+        updateBelowCardContent();
+    }
+};
+
+// --- LIMITED-TIME OFFER BANNER ---
+var OfferBanner = {
+    show: function() {
+        if (state.isPremium) return;
+        if (sessionStorage.getItem('mm_offer_dismissed')) return;
+
+        // Calculate days left in current month
+        var now = new Date();
+        var endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        var daysLeft = Math.max(1, Math.ceil((endOfMonth - now) / 86400000));
+
+        var banner = document.createElement('div');
+        banner.id = 'offer-banner';
+        banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9998;background:linear-gradient(135deg,#00bfa5,#00d4aa);padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,0.3);';
+        banner.innerHTML = '<span style="font-size:13px;color:#0f1520;font-weight:600;">Launch Special: <strong>$9.99 Lifetime</strong> — ' + daysLeft + ' day' + (daysLeft > 1 ? 's' : '') + ' left</span>' +
+            '<button id="offer-cta" style="background:#0f1520;color:#00d4aa;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Upgrade Now</button>' +
+            '<button id="offer-dismiss" style="background:none;border:none;color:rgba(15,21,32,0.5);font-size:16px;cursor:pointer;padding:4px 8px;">&times;</button>';
+
+        document.body.appendChild(banner);
+        document.getElementById('offer-cta').addEventListener('click', function() { showPaywall(); });
+        document.getElementById('offer-dismiss').addEventListener('click', function() {
+            banner.remove();
+            sessionStorage.setItem('mm_offer_dismissed', 'true');
+        });
+    }
+};
+
+// --- PREMIUM CONTENT TEASER ---
+var PremiumTeaser = {
+    render: function() {
+        if (state.isPremium || state.currentLevel > 1) return '';
+        var hsk2 = levelData[2];
+        if (!hsk2 || !hsk2.vocab || hsk2.vocab.length < 3) return '';
+
+        // Show 3 blurred words from HSK2 as teaser
+        var teaserWords = hsk2.vocab.slice(0, 3);
+        var html = '<div class="card" style="margin-top:12px;position:relative;overflow:hidden;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+                '<h3 style="font-size:14px;color:var(--text);margin:0;">Sneak Peek: HSK 2</h3>' +
+                '<span style="font-size:11px;background:rgba(0,191,165,0.1);color:var(--teal);padding:3px 10px;border-radius:20px;">PRO</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+
+        for (var i = 0; i < teaserWords.length; i++) {
+            var w = teaserWords[i];
+            html += '<div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 8px;text-align:center;position:relative;">' +
+                '<div style="font-family:\'Noto Serif SC\',serif;font-size:24px;font-weight:700;color:var(--text);' + (i > 0 ? 'filter:blur(4px);' : '') + '">' + w.chinese + '</div>' +
+                '<div style="font-size:10px;color:var(--teal);margin-top:2px;' + (i > 0 ? 'filter:blur(3px);' : '') + '">' + w.pinyin + '</div>' +
+                '<div style="font-size:10px;color:var(--text-2);margin-top:1px;' + (i > 0 ? 'filter:blur(3px);' : '') + '">' + w.english + '</div>' +
+                (i > 0 ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;">&#x1F512;</div>' : '') +
+            '</div>';
+        }
+
+        html += '</div>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-bottom:10px;text-align:center;">' + (hsk2.vocab.length - 3) + '+ more words waiting for you in HSK 2</p>' +
+            '<button onclick="showPaywall()" style="width:100%;background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;">Unlock All Levels — $9.99</button>' +
+        '</div>';
+        return html;
+    }
+};
+
+// --- STREAK SHIELD & COMEBACK BONUS ---
+var StreakShield = {
+    getState: function() {
+        try { return JSON.parse(localStorage.getItem('mm_streakShield')) || { usedThisWeek: false, weekStart: null }; } catch(e) { return { usedThisWeek: false, weekStart: null }; }
+    },
+
+    saveState: function(s) { localStorage.setItem('mm_streakShield', JSON.stringify(s)); },
+
+    // Returns true if shield was used to save streak
+    checkAndProtect: function() {
+        var today = new Date().toISOString().split('T')[0];
+        var yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+        // Only applies if user missed exactly 1 day (would have broken streak)
+        if (state.lastStudyDate === yesterday || state.lastStudyDate === today) return false;
+        if (!state.lastStudyDate || state.streak < 2) return false;
+
+        // Check if it was just 1 day missed
+        var lastDate = new Date(state.lastStudyDate);
+        var daysSince = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+        if (daysSince !== 2) return false; // Only shield for exactly 1 missed day
+
+        // Streak would break — check for shield
+        var ss = this.getState();
+        var weekNum = this._getWeekNum();
+
+        // Reset weekly shield
+        if (ss.weekStart !== weekNum) {
+            ss.usedThisWeek = false;
+            ss.weekStart = weekNum;
+            this.saveState(ss);
+        }
+
+        // Premium gets unlimited shields, free gets 1/week
+        if (state.isPremium || !ss.usedThisWeek) {
+            if (!state.isPremium) {
+                ss.usedThisWeek = true;
+                this.saveState(ss);
+            }
+            return true;
+        }
+        return false;
+    },
+
+    _getWeekNum: function() {
+        var d = new Date();
+        var start = new Date(d.getFullYear(), 0, 1);
+        return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
+    },
+
+    showShieldUsed: function() {
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--surface);border:1px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:340px;text-align:center;animation:slideDown 0.4s ease;';
+        toast.innerHTML = '<p style="font-size:28px;margin-bottom:4px;">&#x1F6E1;</p>' +
+            '<p style="font-size:14px;font-weight:600;color:var(--teal);">Streak Shield Activated!</p>' +
+            '<p style="font-size:12px;color:var(--text-2);margin-top:4px;">Your ' + state.streak + '-day streak was saved.' +
+            (state.isPremium ? '' : ' Free users get 1 shield/week.') + '</p>' +
+            (!state.isPremium ? '<p style="font-size:11px;color:var(--teal);cursor:pointer;margin-top:8px;" onclick="this.parentNode.remove();showPaywall();">Get unlimited shields with Pro &#x2192;</p>' : '');
+        document.body.appendChild(toast);
+        setTimeout(function() { if (toast.parentNode) { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(function() { toast.remove(); }, 500); } }, 6000);
+    },
+
+    showComebackBonus: function() {
+        // Show if user hasn't studied in 3+ days but is returning now
+        if (!state.lastStudyDate) return;
+        var lastDate = new Date(state.lastStudyDate);
+        var daysSince = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+        if (daysSince < 3) return;
+        if (sessionStorage.getItem('mm_comeback_shown')) return;
+        sessionStorage.setItem('mm_comeback_shown', 'true');
+
+        var bonusXP = Math.min(daysSince * 10, 100);
+        state.score += bonusXP;
+        state.xpToday += bonusXP;
+
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:var(--bg);border:1px solid var(--teal);border-radius:18px;padding:28px 24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);max-width:360px;width:calc(100% - 32px);text-align:center;animation:slideDown 0.3s ease;';
+        toast.innerHTML = '<p style="font-size:36px;margin-bottom:6px;">&#x1F44B;</p>' +
+            '<h3 style="font-size:18px;color:var(--text);margin-bottom:4px;">Welcome Back!</h3>' +
+            '<p style="font-size:13px;color:var(--text-2);margin-bottom:12px;">We missed you! Here\'s a comeback bonus to get you going.</p>' +
+            '<p style="font-size:24px;font-weight:700;color:var(--teal);margin-bottom:16px;">+' + bonusXP + ' XP</p>' +
+            '<button id="comeback-close" style="width:100%;background:linear-gradient(135deg,#00d4aa,#00bfa5);color:#0f1520;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;">Let\'s Study!</button>';
+        document.body.appendChild(toast);
+        document.getElementById('comeback-close').addEventListener('click', function() { toast.remove(); });
+        saveProgress();
     }
 };
 
