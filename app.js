@@ -991,6 +991,7 @@ function init() {
     setupMobileNav();
     setupEventListeners();
     setupAuthListeners();
+    VocabSearch.init();
     checkPremiumStatus();
     restoreProgressFromLocal();
     updateStreak();
@@ -1084,6 +1085,13 @@ function setupEventListeners() {
             const section = link.dataset.section;
             if (link.classList.contains('locked')) return;
             switchSection(section);
+        });
+        link.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const section = link.dataset.section;
+                if (!link.classList.contains('locked')) switchSection(section);
+            }
         });
     });
 
@@ -1259,6 +1267,14 @@ function setupEventListeners() {
     if (elements.upsellCtaBtn) {
         elements.upsellCtaBtn.addEventListener('click', function() {
             showPaywall();
+        });
+    }
+
+    // --- FAVORITES ---
+    var favBtn = document.getElementById('fav-btn');
+    if (favBtn) {
+        favBtn.addEventListener('click', function() {
+            Favorites.toggle(state.currentLevel, state.currentWordIndex);
         });
     }
 
@@ -1591,6 +1607,7 @@ function loadWord(index) {
 
     updateControlStates();
     updateStepIndicators();
+    Favorites.updateBtn();
 
     // Reset canvas mode
     setCanvasMode('trace');
@@ -1838,41 +1855,54 @@ function handleNextWord() {
 }
 
 function handleShare() {
-    // Target the wrapper which contains the Pinyin/Char info AND the canvas
     const captureTarget = document.querySelector('.learning-content-wrapper');
+    const word = getCurrentWord();
 
-    // Temporarily add a watermark for the "User Profile" effect
+    // Improved watermark with stats
     const watermark = document.createElement('div');
-    watermark.style.cssText = 'position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; z-index: 100; pointer-events: none;';
-    watermark.innerText = `Score: ${state.score} | Mandarin Master`;
+    watermark.style.cssText = 'position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,0.75);color:white;padding:8px 12px;border-radius:8px;font-size:0.7rem;z-index:100;pointer-events:none;display:flex;justify-content:space-between;align-items:center;';
+    watermark.innerHTML = '<span>🀄 Mandarin Master</span><span>🔥 ' + state.streak + ' streak · ' + state.score + ' XP · HSK ' + state.currentLevel + '</span>';
 
-    // Ensure relative positioning for watermark
     const originalPosition = captureTarget.style.position;
     captureTarget.style.position = 'relative';
     captureTarget.appendChild(watermark);
 
     html2canvas(captureTarget, {
-        backgroundColor: '#2c3e50', // Ensure dark background is captured (matches theme)
-        scale: 2 // Higher quality
-    }).then(canvas => {
-        // Cleanup
+        backgroundColor: document.body.classList.contains('light-mode') ? '#f5f5f5' : '#0f1520',
+        scale: 2
+    }).then(function(canvas) {
         captureTarget.removeChild(watermark);
         captureTarget.style.position = originalPosition;
 
-        // Convert and Download
-        const image = canvas.toDataURL("image/png");
-        const link = document.createElement('a');
-        link.download = `mandarin-mastery-share-${Date.now()}.png`;
-        link.href = image;
-        link.click();
-
-        alert("📸 Captured! Your learning card is ready to share.");
-    }).catch(err => {
+        // Try Web Share API first (mobile), fallback to download
+        canvas.toBlob(function(blob) {
+            if (navigator.share && blob) {
+                var file = new File([blob], 'mandarin-master-' + (word ? word.chinese : 'share') + '.png', { type: 'image/png' });
+                navigator.share({
+                    title: 'Mandarin Master',
+                    text: 'Learning ' + (word ? word.chinese + ' (' + word.english + ')' : 'Chinese') + ' on Mandarin Master! 🀄',
+                    files: [file]
+                }).catch(function() {
+                    // Share cancelled or failed — fallback to download
+                    downloadImage(canvas);
+                });
+            } else {
+                downloadImage(canvas);
+            }
+        }, 'image/png');
+    }).catch(function(err) {
         console.error("Capture failed:", err);
-        alert("Ops! Could not capture image.");
         if (captureTarget.contains(watermark)) captureTarget.removeChild(watermark);
         captureTarget.style.position = originalPosition;
     });
+}
+
+function downloadImage(canvas) {
+    var image = canvas.toDataURL('image/png');
+    var link = document.createElement('a');
+    link.download = 'mandarin-master-share-' + Date.now() + '.png';
+    link.href = image;
+    link.click();
 }
 
 // --- MOCK HSK QUIZ ---
@@ -2400,10 +2430,192 @@ function renderAnalytics() {
         '</div>' +
     '</div>';
 
+    // Add journey progress
+    html += renderJourneyProgress();
+
     // Add achievements
     html += renderAchievements();
 
     container.innerHTML = html;
+}
+
+// --- VOCABULARY SEARCH & FILTER ---
+var VocabSearch = {
+    init: function() {
+        var input = document.getElementById('vocab-search-input');
+        var results = document.getElementById('vocab-search-results');
+        var favFilter = document.getElementById('vocab-fav-filter');
+        if (!input || !results) return;
+
+        var self = this;
+        var debounceTimer;
+        input.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function() {
+                var query = input.value.trim().toLowerCase();
+                if (query.length === 0) { results.style.display = 'none'; return; }
+                self.search(query, false);
+            }, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if (input.value.trim().length > 0) self.search(input.value.trim().toLowerCase(), false);
+        });
+
+        if (favFilter) {
+            var showingFavs = false;
+            favFilter.addEventListener('click', function() {
+                showingFavs = !showingFavs;
+                favFilter.style.color = showingFavs ? 'var(--teal)' : 'var(--text-3)';
+                favFilter.textContent = showingFavs ? '★' : '☆';
+                if (showingFavs) {
+                    self.search('', true);
+                    input.value = '';
+                } else {
+                    results.style.display = 'none';
+                }
+            });
+        }
+    },
+
+    search: function(query, favsOnly) {
+        var data = getCurrentData();
+        var results = document.getElementById('vocab-search-results');
+        if (!data || !data.vocab || !results) return;
+
+        var favs = Favorites.getAll(state.currentLevel);
+        var matches = [];
+        for (var i = 0; i < data.vocab.length; i++) {
+            var w = data.vocab[i];
+            var isFav = favs.indexOf(i) !== -1;
+            if (favsOnly && !isFav) continue;
+            if (!favsOnly && query.length > 0) {
+                var matchesTerm = w.chinese.indexOf(query) !== -1 ||
+                    w.pinyin.toLowerCase().indexOf(query) !== -1 ||
+                    w.english.toLowerCase().indexOf(query) !== -1;
+                if (!matchesTerm) continue;
+            }
+            matches.push({ word: w, index: i, isFav: isFav });
+            if (matches.length >= 30) break;
+        }
+
+        if (matches.length === 0) {
+            results.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-3);font-size:13px;">No matches found</div>';
+            results.style.display = 'block';
+            return;
+        }
+
+        results.innerHTML = matches.map(function(m) {
+            var isLearned = m.index < state.currentWordIndex;
+            return '<div class="search-result-item" data-index="' + m.index + '" style="display:flex;align-items:center;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s;gap:10px;" onmouseover="this.style.background=\'rgba(0,212,170,0.06)\'" onmouseout="this.style.background=\'\'">' +
+                '<span style="font-family:\'Noto Serif SC\',serif;font-size:20px;font-weight:700;color:var(--text);min-width:36px;">' + m.word.chinese + '</span>' +
+                '<div style="flex:1;min-width:0;">' +
+                    '<div style="font-size:12px;color:var(--teal);">' + m.word.pinyin + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + m.word.english + '</div>' +
+                '</div>' +
+                '<span style="font-size:10px;color:' + (isLearned ? 'var(--teal)' : 'var(--text-3)') + ';">' + (isLearned ? '✓' : '#' + (m.index + 1)) + '</span>' +
+                '<span class="search-fav-btn" data-idx="' + m.index + '" style="font-size:16px;cursor:pointer;color:' + (m.isFav ? 'var(--teal)' : 'var(--text-3)') + ';">' + (m.isFav ? '★' : '☆') + '</span>' +
+            '</div>';
+        }).join('');
+
+        results.style.display = 'block';
+
+        // Wire click to jump to word
+        results.querySelectorAll('.search-result-item').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                if (e.target.classList.contains('search-fav-btn')) return;
+                var idx = parseInt(item.getAttribute('data-index'));
+                if (idx <= state.currentWordIndex || state.isPremium) {
+                    state.currentWordIndex = idx;
+                    loadWord(idx);
+                    results.style.display = 'none';
+                    document.getElementById('vocab-search-input').value = '';
+                    saveProgress();
+                }
+            });
+        });
+
+        // Wire fav buttons
+        results.querySelectorAll('.search-fav-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var idx = parseInt(btn.getAttribute('data-idx'));
+                Favorites.toggle(state.currentLevel, idx);
+                btn.textContent = Favorites.isFav(state.currentLevel, idx) ? '★' : '☆';
+                btn.style.color = Favorites.isFav(state.currentLevel, idx) ? 'var(--teal)' : 'var(--text-3)';
+            });
+        });
+    }
+};
+
+// --- FAVORITES / BOOKMARKS ---
+var Favorites = {
+    getKey: function(level) { return 'mm_favs_' + level; },
+
+    getAll: function(level) {
+        try { return JSON.parse(localStorage.getItem(this.getKey(level))) || []; } catch(e) { return []; }
+    },
+
+    toggle: function(level, wordIndex) {
+        var favs = this.getAll(level);
+        var idx = favs.indexOf(wordIndex);
+        if (idx === -1) favs.push(wordIndex);
+        else favs.splice(idx, 1);
+        localStorage.setItem(this.getKey(level), JSON.stringify(favs));
+        this.updateBtn();
+    },
+
+    isFav: function(level, wordIndex) {
+        return this.getAll(level).indexOf(wordIndex) !== -1;
+    },
+
+    updateBtn: function() {
+        var btn = document.getElementById('fav-btn');
+        if (!btn) return;
+        var isFav = this.isFav(state.currentLevel, state.currentWordIndex);
+        btn.textContent = isFav ? '★' : '☆';
+        btn.style.color = isFav ? 'var(--teal)' : 'var(--text-3)';
+    }
+};
+
+// --- HSK JOURNEY PROGRESS ---
+function renderJourneyProgress() {
+    var html = '<div class="card" style="margin-bottom:12px;">' +
+        '<h3 style="font-size:16px;color:var(--text);margin-bottom:16px;">HSK Journey</h3>' +
+        '<div style="display:flex;flex-direction:column;gap:8px;">';
+
+    var totalWords = 0;
+    var totalLearned = 0;
+
+    for (var level = 1; level <= 6; level++) {
+        var data = levelData[level];
+        if (!data || !data.vocab) continue;
+        var vocabCount = data.vocab.length;
+        totalWords += vocabCount;
+        var learned = (level === state.currentLevel) ? state.currentWordIndex :
+                      (level < state.currentLevel) ? vocabCount : 0;
+        totalLearned += learned;
+        var pct = Math.round((learned / vocabCount) * 100);
+        var isCurrentLevel = level === state.currentLevel;
+        var isLocked = level > 1 && !state.isPremium;
+
+        html += '<div style="display:flex;align-items:center;gap:10px;">' +
+            '<span style="font-size:12px;font-weight:600;color:' + (isCurrentLevel ? 'var(--teal)' : 'var(--text-2)') + ';min-width:42px;">HSK ' + level + '</span>' +
+            '<div style="flex:1;background:var(--surface);height:6px;border-radius:3px;overflow:hidden;">' +
+                '<div style="background:' + (isLocked ? 'var(--text-3)' : 'linear-gradient(90deg,#00d4aa,#00bfa5)') + ';height:100%;width:' + pct + '%;border-radius:3px;transition:width 0.5s;"></div>' +
+            '</div>' +
+            '<span style="font-size:11px;color:var(--text-3);min-width:30px;text-align:right;">' + (isLocked ? '🔒' : pct + '%') + '</span>' +
+        '</div>';
+    }
+
+    var overallPct = totalWords > 0 ? Math.round((totalLearned / totalWords) * 100) : 0;
+    html += '</div>' +
+        '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">' +
+            '<span style="font-size:13px;color:var(--text);">Overall Progress</span>' +
+            '<span style="font-size:14px;font-weight:700;color:var(--teal);">' + totalLearned + ' / ' + totalWords + ' (' + overallPct + '%)</span>' +
+        '</div>' +
+    '</div>';
+    return html;
 }
 
 function speak(text) { const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 0.85; speechSynthesis.speak(u); }

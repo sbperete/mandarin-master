@@ -49,21 +49,21 @@
                 </select>
             </div>
 
-            <ul class="nav-links">
-                <li class="active" data-section="vocab">
-                    <span class="icon">字</span> Vocabulary
+            <ul class="nav-links" role="navigation" aria-label="Main navigation">
+                <li class="active" data-section="vocab" role="button" tabindex="0" aria-label="Vocabulary section">
+                    <span class="icon" aria-hidden="true">字</span> Vocabulary
                 </li>
-                <li data-section="phrases" class="locked">
-                    <span class="icon">句</span> Phrases
+                <li data-section="phrases" class="locked" role="button" tabindex="0" aria-label="Phrases section">
+                    <span class="icon" aria-hidden="true">句</span> Phrases
                 </li>
-                <li data-section="story" class="locked">
-                    <span class="icon">书</span> Story
+                <li data-section="story" class="locked" role="button" tabindex="0" aria-label="Story section">
+                    <span class="icon" aria-hidden="true">书</span> Story
                 </li>
-                <li data-section="resources" class="locked">
-                    <span class="icon">网</span> Resources
+                <li data-section="resources" class="locked" role="button" tabindex="0" aria-label="Resources section">
+                    <span class="icon" aria-hidden="true">网</span> Resources
                 </li>
-                <li data-section="leaderboard">
-                    <span class="icon">🏆</span> Leaderboard
+                <li data-section="leaderboard" role="button" tabindex="0" aria-label="Leaderboard section">
+                    <span class="icon" aria-hidden="true">🏆</span> Leaderboard
                 </li>
             </ul>
 
@@ -112,6 +112,16 @@
                     <button id="review-btn" class="review-toggle-btn" style="display:none">🔄 Review</button>
                 </header>
 
+                <!-- Search & Filter Bar -->
+                <div id="vocab-search-bar" style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+                    <div style="flex:1;position:relative;">
+                        <input type="text" id="vocab-search-input" placeholder="Search words..." aria-label="Search vocabulary" style="width:100%;padding:10px 14px 10px 36px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:13px;outline:none;" />
+                        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--text-3);">🔍</span>
+                    </div>
+                    <button id="vocab-fav-filter" title="Show favorites only" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:16px;cursor:pointer;color:var(--text-3);">☆</button>
+                </div>
+                <div id="vocab-search-results" style="display:none;max-height:300px;overflow-y:auto;margin-bottom:10px;border-radius:12px;border:1px solid var(--border);background:var(--surface);"></div>
+
                 <div class="card learning-card">
                     <div class="learning-content-wrapper">
                         <div class="character-display">
@@ -121,6 +131,7 @@
                             <h2 id="pinyin-display">Loading...</h2>
                             <p id="english-display">...</p>
                             <button id="audio-btn" class="icon-btn" title="Play Audio">🔊</button>
+                            <button id="fav-btn" class="icon-btn" title="Bookmark word" style="position:absolute;top:8px;right:8px;font-size:20px;background:none;border:none;cursor:pointer;color:var(--text-3);">☆</button>
                         </div>
 
                         <div class="canvas-area">
@@ -171,10 +182,10 @@
                     </div>
 
                     <div class="controls">
-                        <button id="listen-btn" class="action-btn action-btn-listen">🔊 Listen</button>
-                        <button id="pronounce-btn" class="action-btn action-btn-speak" disabled>🎙️ Speak</button>
-                        <button id="draw-btn" class="action-btn action-btn-write" disabled>✍️ Write</button>
-                        <button id="next-btn" class="action-btn action-btn-next" disabled>➡️ Next</button>
+                        <button id="listen-btn" class="action-btn action-btn-listen" aria-label="Listen to pronunciation">🔊 Listen</button>
+                        <button id="pronounce-btn" class="action-btn action-btn-speak" disabled aria-label="Practice speaking">🎙️ Speak</button>
+                        <button id="draw-btn" class="action-btn action-btn-write" disabled aria-label="Practice writing">✍️ Write</button>
+                        <button id="next-btn" class="action-btn action-btn-next" disabled aria-label="Next word">➡️ Next</button>
                         <button id="share-btn" class="action-btn action-btn-share" title="Share Progress">🔗</button>
                     </div>
 
