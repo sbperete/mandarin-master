@@ -1232,7 +1232,8 @@ function loadLevel(level, restoreSaved) {
 
     const data = levelData[level];
     if (!data) {
-        if (level > 2) { alert("Coming soon!"); return; }
+        alert("Level data not available. Please try again.");
+        return;
     }
     loadWord(state.currentWordIndex);
     renderPhrases();
