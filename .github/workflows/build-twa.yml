@@ -53,86 +53,76 @@ jobs:
           echo "sha256=$FINGERPRINT" >> $GITHUB_OUTPUT
           echo "::notice::SHA-256 Fingerprint: $FINGERPRINT"
 
-      - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli
-
-      - name: Configure Bubblewrap to use existing SDK
+      - name: Install and configure Bubblewrap CLI
         run: |
-          # Create bubblewrap config to skip SDK download
-          mkdir -p $HOME/.aspect
-          mkdir -p $HOME/.nicolo-nicolo/nicolo-nicolo/nicolo-bubblewrap
-          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
+          npm install -g @bubblewrap/cli
 
-          # Tell bubblewrap where the existing JDK and SDK are
-          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
+          # Pre-configure bubblewrap with JDK and SDK paths to skip interactive prompts
+          mkdir -p ~/.nicolo-nicolo/nicolo-bubblewrap
+          cat > ~/.nicolo-nicolo/nicolo-bubblewrap/config.json << EOF
           {
             "jdkPath": "$JAVA_HOME",
             "androidSdkPath": "/usr/local/lib/android/sdk"
           }
           EOF
 
-          # Also try the bubblewrap config location
-          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
-          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
-          {
-            "jdkPath": "$JAVA_HOME",
-            "androidSdkPath": "/usr/local/lib/android/sdk"
-          }
-          EOF
+          # Also write to bubblewrap's actual config location
+          bubblewrap updateConfig \
+            --jdkPath="$JAVA_HOME" \
+            --androidSdkPath="/usr/local/lib/android/sdk" 2>&1 || true
 
-          # Try standard config location
-          mkdir -p $HOME/.nicolo-nicolo/nicolo-bubblewrap
-          cat > $HOME/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null << EOF || true
-          {
-            "jdkPath": "$JAVA_HOME",
-            "androidSdkPath": "/usr/local/lib/android/sdk"
-          }
-          EOF
+          echo "Config written. Checking:"
+          cat ~/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null || true
+          find ~ -name "config.json" -path "*bubblewrap*" 2>/dev/null || true
 
-      - name: Initialize and build TWA
+      - name: Initialize TWA project
         run: |
           mkdir -p twa-build && cd twa-build
-
-          # Set env vars for bubblewrap
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
 
-          # Answer "No" to SDK download question, then provide paths
-          printf 'n\n/usr/local/lib/android/sdk\n%s\n' "$JAVA_HOME" | bubblewrap init \
+          # Use yes to answer any remaining prompts with 'y'
+          yes | bubblewrap init \
             --manifest="https://mandarin-master.netlify.app/manifest.json" \
-            --directory=. 2>&1 || {
-            echo "First init attempt failed, trying alternative..."
-            echo "n" | bubblewrap init \
-              --manifest="https://mandarin-master.netlify.app/manifest.json" 2>&1 || true
-          }
+            --directory=. 2>&1 || true
 
           echo "=== Project files after init ==="
           ls -la
+          echo "=== Check for gradlew ==="
+          [ -f "gradlew" ] && echo "gradlew found!" || echo "No gradlew"
+          [ -f "app/build.gradle" ] && echo "app/build.gradle found!" || echo "No app/build.gradle"
+          [ -f "twaManifest.json" ] && echo "twaManifest.json found!" || echo "No twaManifest.json"
 
-      - name: Build APK and AAB
+      - name: Build with Gradle
         working-directory: twa-build
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
 
-          if [ -f "twaManifest.json" ] || [ -f "build.gradle" ] || [ -f "gradlew" ]; then
-            # If bubblewrap created a project, try building
-            if [ -f "gradlew" ]; then
-              echo "Building with Gradle..."
-              chmod +x gradlew
-              ./gradlew assembleRelease 2>&1 || true
-              ./gradlew bundleRelease 2>&1 || true
-            else
-              echo "Trying bubblewrap build..."
-              bubblewrap build 2>&1 || true
-            fi
+          if [ -f "gradlew" ]; then
+            echo "Building with Gradle..."
+            chmod +x gradlew
+
+            # Build signed APK
+            ./gradlew assembleRelease \
+              -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/mandarin-master.keystore \
+              -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
+              -Pandroid.injected.signing.key.alias=mandarin-master \
+              -Pandroid.injected.signing.key.password="${{ secrets.KEYSTORE_PASSWORD }}" 2>&1
+
+            # Build AAB
+            ./gradlew bundleRelease \
+              -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/mandarin-master.keystore \
+              -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
+              -Pandroid.injected.signing.key.alias=mandarin-master \
+              -Pandroid.injected.signing.key.password="${{ secrets.KEYSTORE_PASSWORD }}" 2>&1 || true
           else
-            echo "No project was created. Using PWABuilder web interface instead."
-            echo "Go to https://www.pwabuilder.com and enter https://mandarin-master.netlify.app"
+            echo "::warning::No gradlew found. Bubblewrap init may have failed."
+            echo "Use PWABuilder web interface: https://www.pwabuilder.com"
           fi
 
-          echo "=== Looking for build outputs ==="
-          find . -name "*.apk" -o -name "*.aab" 2>/dev/null || echo "No APK/AAB found"
+          echo "=== Build outputs ==="
+          find . -name "*.apk" -o -name "*.aab" 2>/dev/null || echo "No artifacts found"
 
       - name: Collect artifacts
         run: |
@@ -140,7 +130,6 @@ jobs:
           find twa-build -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
           find twa-build -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
           cp $GITHUB_WORKSPACE/mandarin-master.keystore artifacts/ 2>/dev/null || true
-          echo "=== Collected artifacts ==="
           ls -la artifacts/
 
       - name: Upload APK
@@ -170,20 +159,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**SHA-256 Fingerprint:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Update assetlinks.json" >> $GITHUB_STEP_SUMMARY
+          echo "### assetlinks.json content" >> $GITHUB_STEP_SUMMARY
           echo '```json' >> $GITHUB_STEP_SUMMARY
-          echo '[{' >> $GITHUB_STEP_SUMMARY
-          echo '  "relation": ["delegate_permission/common.handle_all_urls"],' >> $GITHUB_STEP_SUMMARY
-          echo '  "target": {' >> $GITHUB_STEP_SUMMARY
-          echo '    "namespace": "android_app",' >> $GITHUB_STEP_SUMMARY
-          echo '    "package_name": "app.netlify.mandarin_master.twa",' >> $GITHUB_STEP_SUMMARY
-          echo '    "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"]' >> $GITHUB_STEP_SUMMARY
-          echo '  }' >> $GITHUB_STEP_SUMMARY
-          echo '}]' >> $GITHUB_STEP_SUMMARY
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+              "namespace": "android_app",
+              "package_name": "app.netlify.mandarin_master.twa",
+              "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"]
+            }
+          }]
+          EOF
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### If no APK/AAB was produced:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Go to https://www.pwabuilder.com" >> $GITHUB_STEP_SUMMARY
-          echo "2. Enter: https://mandarin-master.netlify.app" >> $GITHUB_STEP_SUMMARY
-          echo "3. Click Package → Android" >> $GITHUB_STEP_SUMMARY
-          echo "4. Download the APK/AAB and sign with the keystore from artifacts" >> $GITHUB_STEP_SUMMARY
