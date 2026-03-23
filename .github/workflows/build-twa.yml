@@ -49,26 +49,23 @@ jobs:
           echo "sha256=$FINGERPRINT" >> $GITHUB_OUTPUT
           echo "::notice::SHA-256 Fingerprint: $FINGERPRINT"
 
-      - name: Download and resize app icons
+      - name: Resize app icons for Android densities
         run: |
           sudo apt-get install -y imagemagick > /dev/null 2>&1
-          curl -sL "https://mandarin-master.netlify.app/icons/icon-512.png" -o icon-512.png
+
+          # Use icon from the repo (already checked out)
+          ICON="icons/icon-512.png"
+          file "$ICON"
 
           # Resize to proper Android mipmap densities
-          declare -A SIZES=(
-            ["mdpi"]=48
-            ["hdpi"]=72
-            ["xhdpi"]=96
-            ["xxhdpi"]=144
-            ["xxxhdpi"]=192
-          )
-          for density in "${!SIZES[@]}"; do
-            size=${SIZES[$density]}
+          for density_size in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
+            density="${density_size%%:*}"
+            size="${density_size##*:}"
             dir="twa/app/src/main/res/mipmap-${density}"
             mkdir -p "$dir"
-            convert icon-512.png -resize ${size}x${size} "$dir/ic_launcher.png"
+            convert "$ICON" -resize "${size}x${size}" "$dir/ic_launcher.png"
+            echo "Created ${density} icon (${size}x${size})"
           done
-          echo "Icons resized for all densities"
 
       - name: Create TWA Android project
         env:
