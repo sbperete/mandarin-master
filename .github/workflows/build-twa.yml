@@ -26,6 +26,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Generate signing keystore
         run: |
           keytool -genkeypair \
@@ -54,14 +57,17 @@ jobs:
           mkdir -p twa/app/src/main/res/mipmap-hdpi
           mkdir -p twa/app/src/main/res/mipmap-mdpi
           curl -sL "https://mandarin-master.netlify.app/icons/icon-512.png" -o icon-512.png
-          # Copy icon to all densities (simple approach — same icon, Android handles scaling)
-          cp icon-512.png twa/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          cp icon-512.png twa/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          cp icon-512.png twa/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          cp icon-512.png twa/app/src/main/res/mipmap-hdpi/ic_launcher.png
-          cp icon-512.png twa/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          for dir in xxxhdpi xxhdpi xhdpi hdpi mdpi; do
+            cp icon-512.png twa/app/src/main/res/mipmap-$dir/ic_launcher.png
+          done
 
       - name: Create TWA Android project
+        env:
+          FINGERPRINT: ${{ steps.fingerprint.outputs.sha256 }}
+          KEYSTORE_PATH: ${{ github.workspace }}/mandarin-master.keystore
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
         run: |
           cd twa
 
@@ -74,7 +80,8 @@ jobs:
                   gradlePluginPortal()
               }
           }
-          dependencyResolution {
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
                   google()
                   mavenCentral()
@@ -98,8 +105,7 @@ jobs:
           EOF
 
           # --- app/build.gradle ---
-          mkdir -p app
-          cat > app/build.gradle << APPEOF
+          cat > app/build.gradle << EOF
           plugins {
               id 'com.android.application'
           }
@@ -112,31 +118,30 @@ jobs:
                   applicationId "app.netlify.mandarin_master.twa"
                   minSdk 19
                   targetSdk 34
-                  versionCode ${{ inputs.version_code }}
-                  versionName "${{ inputs.version_name }}"
+                  versionCode ${VERSION_CODE}
+                  versionName "${VERSION_NAME}"
 
                   manifestPlaceholders = [
                       hostName: "mandarin-master.netlify.app",
                       defaultUrl: "https://mandarin-master.netlify.app",
                       launcherName: "Mandarin Master",
-                      assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "android_app", "package_name": "app.netlify.mandarin_master.twa", "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"] } }]'
+                      assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "android_app", "package_name": "app.netlify.mandarin_master.twa", "sha256_cert_fingerprints": ["${FINGERPRINT}"] } }]'
                   ]
               }
 
               signingConfigs {
                   release {
-                      storeFile file("$GITHUB_WORKSPACE/mandarin-master.keystore")
-                      storePassword "${{ secrets.KEYSTORE_PASSWORD }}"
+                      storeFile file("${KEYSTORE_PATH}")
+                      storePassword "${KEYSTORE_PASS}"
                       keyAlias "mandarin-master"
-                      keyPassword "${{ secrets.KEYSTORE_PASSWORD }}"
+                      keyPassword "${KEYSTORE_PASS}"
                   }
               }
 
               buildTypes {
                   release {
                       signingConfig signingConfigs.release
-                      minifyEnabled true
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+                      minifyEnabled false
                   }
               }
 
@@ -149,7 +154,7 @@ jobs:
           dependencies {
               implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
           }
-          APPEOF
+          EOF
 
           # --- AndroidManifest.xml ---
           mkdir -p app/src/main
@@ -158,7 +163,6 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <application
-                  android:name="android.app.Application"
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
                   android:label="${launcherName}"
@@ -214,9 +218,9 @@ jobs:
           </manifest>
           MANIFEST
 
-          # --- res/values/colors.xml ---
+          # --- Resource files ---
           mkdir -p app/src/main/res/values
-          cat > app/src/main/res/values/colors.xml << 'COLORS'
+          cat > app/src/main/res/values/colors.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <color name="colorPrimary">#0f1520</color>
@@ -224,89 +228,35 @@ jobs:
               <color name="navigationColor">#0f1520</color>
               <color name="backgroundColor">#0f1520</color>
           </resources>
-          COLORS
+          EOF
 
-          # --- res/values/strings.xml ---
-          cat > app/src/main/res/values/strings.xml << 'STRINGS'
+          cat > app/src/main/res/values/strings.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <string name="app_name">Mandarin Master</string>
           </resources>
-          STRINGS
+          EOF
 
-          # --- res/values/styles.xml ---
-          cat > app/src/main/res/values/styles.xml << 'STYLES'
+          cat > app/src/main/res/values/styles.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="Theme.LauncherActivity" parent="Theme.AppCompat.NoActionBar">
                   <item name="android:windowBackground">@color/backgroundColor</item>
-                  <item name="android:statusBarColor">@color/colorPrimary</item>
-                  <item name="android:navigationBarColor">@color/navigationColor</item>
               </style>
           </resources>
-          STYLES
-
-          echo "=== TWA project structure ==="
-          find . -type f | head -30
-
-      - name: Setup Gradle wrapper
-        working-directory: twa
-        run: |
-          # Download Gradle wrapper
-          gradle wrapper --gradle-version=8.5 2>/dev/null || {
-            # If gradle isn't available, create wrapper manually
-            mkdir -p gradle/wrapper
-            curl -sL "https://services.gradle.org/distributions/gradle-8.5-bin.zip" -o gradle/wrapper/gradle-8.5-bin.zip
-            cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
-          networkTimeout=10000
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
           EOF
 
-            # Download and create gradlew script
-            curl -sL "https://raw.githubusercontent.com/nicolo-ribaudo/nicolo-ribaudo/master/gradlew" -o gradlew 2>/dev/null || {
-              cat > gradlew << 'GRADLEW'
-          #!/bin/sh
-          APP_BASE_NAME=$(basename "$0")
-          APP_HOME=$(cd "$(dirname "$0")" && pwd -P)
-          DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-          CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
-          exec java $DEFAULT_JVM_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
-          GRADLEW
-            }
-            chmod +x gradlew
-
-            # Download gradle wrapper jar
-            curl -sL "https://github.com/nicolo-ribaudo/nicolo-ribaudo/raw/main/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || {
-              # Use gradle init to create proper wrapper
-              export SDKMAN_DIR="$HOME/.sdkman"
-              curl -s "https://get.sdkman.io" | bash 2>/dev/null || true
-              source "$HOME/.sdkman/bin/sdkman-init.sh" 2>/dev/null || true
-              sdk install gradle 8.5 2>/dev/null || true
-              gradle wrapper 2>/dev/null || true
-            }
-          }
-
-      - name: Build with Gradle
+      - name: Build APK and AAB
         working-directory: twa
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
 
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            echo "Building release APK..."
-            ./gradlew assembleRelease 2>&1
+          echo "Building release APK..."
+          gradle assembleRelease
 
-            echo "Building release AAB..."
-            ./gradlew bundleRelease 2>&1 || true
-          else
-            echo "::error::Gradle wrapper not available"
-            exit 1
-          fi
+          echo "Building release AAB..."
+          gradle bundleRelease || true
 
           echo "=== Build outputs ==="
           find . -name "*.apk" -o -name "*.aab" 2>/dev/null
@@ -317,7 +267,7 @@ jobs:
           find twa -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
           find twa -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
           cp $GITHUB_WORKSPACE/mandarin-master.keystore artifacts/
-          echo "=== Final artifacts ==="
+          echo "=== Artifacts ==="
           ls -la artifacts/
 
       - name: Upload APK
@@ -348,5 +298,7 @@ jobs:
           echo "**Version:** ${{ inputs.version_name }} (${{ inputs.version_code }})" >> $GITHUB_STEP_SUMMARY
           echo "**SHA-256:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          ls artifacts/ 2>/dev/null | while read f; do echo "- $f"; done >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download APK/AAB from artifacts above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update .well-known/assetlinks.json with fingerprint" >> $GITHUB_STEP_SUMMARY
+          echo "3. Upload to Google Play, Amazon, Huawei" >> $GITHUB_STEP_SUMMARY
