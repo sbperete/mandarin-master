@@ -4,11 +4,11 @@
 
 | # | Platform | Fee | Status | Action |
 |---|----------|-----|--------|--------|
-| 1 | **Microsoft Store** | FREE | 🔄 MSIX build running | Submit via Partner Center |
+| 1 | **Microsoft Store** | FREE | 📝 Ready | Use PWABuilder.com to package |
 | 2 | **Samsung Galaxy Store** | FREE | 📧 Ready to email | Send PWA submission email |
-| 3 | **Huawei AppGallery** | FREE | ⏳ Needs APK | Submit TWA APK |
-| 4 | **Google Play** | $25 (paid) | 🔄 AAB build running | Submit signed AAB |
-| 5 | **Amazon Appstore** | FREE (active) | ⏳ Needs APK | Submit TWA APK |
+| 3 | **Huawei AppGallery** | FREE | ✅ APK ready | Upload build-artifacts/mandarin-master-apk/app-release.apk |
+| 4 | **Google Play** | $25 (paid) | ✅ AAB ready | Upload build-artifacts/mandarin-master-aab/app-release.aab |
+| 5 | **Amazon Appstore** | FREE (active) | ✅ APK ready | Upload build-artifacts/mandarin-master-apk/app-release.apk |
 | 6 | **Product Hunt** | FREE | 📝 Ready | Launch post |
 | 7 | **Lemon Squeezy** | 5%+$0.50 | 📝 Ready | Create sales page |
 | 8 | **Directory Listings** | FREE | 📝 Ready | Submit to AlternativeTo, Capterra |
