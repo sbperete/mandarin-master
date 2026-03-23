@@ -26,18 +26,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Generate signing keystore
         run: |
           keytool -genkeypair \
             -alias mandarin-master \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
+            -keyalg RSA -keysize 2048 -validity 10000 \
             -keystore $GITHUB_WORKSPACE/mandarin-master.keystore \
             -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
             -keypass "${{ secrets.KEYSTORE_PASSWORD }}" \
@@ -53,83 +46,278 @@ jobs:
           echo "sha256=$FINGERPRINT" >> $GITHUB_OUTPUT
           echo "::notice::SHA-256 Fingerprint: $FINGERPRINT"
 
-      - name: Install and configure Bubblewrap CLI
+      - name: Download app icon
         run: |
-          npm install -g @bubblewrap/cli
+          mkdir -p twa/app/src/main/res/mipmap-xxxhdpi
+          mkdir -p twa/app/src/main/res/mipmap-xxhdpi
+          mkdir -p twa/app/src/main/res/mipmap-xhdpi
+          mkdir -p twa/app/src/main/res/mipmap-hdpi
+          mkdir -p twa/app/src/main/res/mipmap-mdpi
+          curl -sL "https://mandarin-master.netlify.app/icons/icon-512.png" -o icon-512.png
+          # Copy icon to all densities (simple approach — same icon, Android handles scaling)
+          cp icon-512.png twa/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp icon-512.png twa/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp icon-512.png twa/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp icon-512.png twa/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp icon-512.png twa/app/src/main/res/mipmap-mdpi/ic_launcher.png
 
-          # Pre-configure bubblewrap with JDK and SDK paths to skip interactive prompts
-          mkdir -p ~/.nicolo-nicolo/nicolo-bubblewrap
-          cat > ~/.nicolo-nicolo/nicolo-bubblewrap/config.json << EOF
-          {
-            "jdkPath": "$JAVA_HOME",
-            "androidSdkPath": "/usr/local/lib/android/sdk"
+      - name: Create TWA Android project
+        run: |
+          cd twa
+
+          # --- settings.gradle ---
+          cat > settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolution {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MandarinMaster"
+          include ':app'
+          EOF
+
+          # --- build.gradle (root) ---
+          cat > build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
           }
           EOF
 
-          # Also write to bubblewrap's actual config location
-          bubblewrap updateConfig \
-            --jdkPath="$JAVA_HOME" \
-            --androidSdkPath="/usr/local/lib/android/sdk" 2>&1 || true
+          # --- gradle.properties ---
+          cat > gradle.properties << 'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
 
-          echo "Config written. Checking:"
-          cat ~/.nicolo-nicolo/nicolo-bubblewrap/config.json 2>/dev/null || true
-          find ~ -name "config.json" -path "*bubblewrap*" 2>/dev/null || true
+          # --- app/build.gradle ---
+          mkdir -p app
+          cat > app/build.gradle << APPEOF
+          plugins {
+              id 'com.android.application'
+          }
 
-      - name: Initialize TWA project
+          android {
+              namespace 'app.netlify.mandarin_master.twa'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "app.netlify.mandarin_master.twa"
+                  minSdk 19
+                  targetSdk 34
+                  versionCode ${{ inputs.version_code }}
+                  versionName "${{ inputs.version_name }}"
+
+                  manifestPlaceholders = [
+                      hostName: "mandarin-master.netlify.app",
+                      defaultUrl: "https://mandarin-master.netlify.app",
+                      launcherName: "Mandarin Master",
+                      assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "android_app", "package_name": "app.netlify.mandarin_master.twa", "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"] } }]'
+                  ]
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file("$GITHUB_WORKSPACE/mandarin-master.keystore")
+                      storePassword "${{ secrets.KEYSTORE_PASSWORD }}"
+                      keyAlias "mandarin-master"
+                      keyPassword "${{ secrets.KEYSTORE_PASSWORD }}"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled true
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+              implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+          }
+          APPEOF
+
+          # --- AndroidManifest.xml ---
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml << 'MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:name="android.app.Application"
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="${launcherName}"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.LauncherActivity">
+
+                  <meta-data
+                      android:name="asset_statements"
+                      android:value='${assetStatements}' />
+
+                  <activity
+                      android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+                      android:exported="true"
+                      android:label="${launcherName}">
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                          android:value="${defaultUrl}" />
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
+                          android:resource="@color/colorPrimary" />
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                          android:resource="@color/navigationColor" />
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
+                          android:resource="@mipmap/ic_launcher" />
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
+                          android:resource="@color/backgroundColor" />
+
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SCREEN_ORIENTATION"
+                          android:value="portrait" />
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="https" android:host="${hostName}" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          MANIFEST
+
+          # --- res/values/colors.xml ---
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/colors.xml << 'COLORS'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#0f1520</color>
+              <color name="colorPrimaryDark">#0f1520</color>
+              <color name="navigationColor">#0f1520</color>
+              <color name="backgroundColor">#0f1520</color>
+          </resources>
+          COLORS
+
+          # --- res/values/strings.xml ---
+          cat > app/src/main/res/values/strings.xml << 'STRINGS'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Mandarin Master</string>
+          </resources>
+          STRINGS
+
+          # --- res/values/styles.xml ---
+          cat > app/src/main/res/values/styles.xml << 'STYLES'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.LauncherActivity" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">@color/backgroundColor</item>
+                  <item name="android:statusBarColor">@color/colorPrimary</item>
+                  <item name="android:navigationBarColor">@color/navigationColor</item>
+              </style>
+          </resources>
+          STYLES
+
+          echo "=== TWA project structure ==="
+          find . -type f | head -30
+
+      - name: Setup Gradle wrapper
+        working-directory: twa
         run: |
-          mkdir -p twa-build && cd twa-build
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          # Download Gradle wrapper
+          gradle wrapper --gradle-version=8.5 2>/dev/null || {
+            # If gradle isn't available, create wrapper manually
+            mkdir -p gradle/wrapper
+            curl -sL "https://services.gradle.org/distributions/gradle-8.5-bin.zip" -o gradle/wrapper/gradle-8.5-bin.zip
+            cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+          networkTimeout=10000
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
 
-          # Use yes to answer any remaining prompts with 'y'
-          yes | bubblewrap init \
-            --manifest="https://mandarin-master.netlify.app/manifest.json" \
-            --directory=. 2>&1 || true
+            # Download and create gradlew script
+            curl -sL "https://raw.githubusercontent.com/nicolo-ribaudo/nicolo-ribaudo/master/gradlew" -o gradlew 2>/dev/null || {
+              cat > gradlew << 'GRADLEW'
+          #!/bin/sh
+          APP_BASE_NAME=$(basename "$0")
+          APP_HOME=$(cd "$(dirname "$0")" && pwd -P)
+          DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+          CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+          exec java $DEFAULT_JVM_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
+          GRADLEW
+            }
+            chmod +x gradlew
 
-          echo "=== Project files after init ==="
-          ls -la
-          echo "=== Check for gradlew ==="
-          [ -f "gradlew" ] && echo "gradlew found!" || echo "No gradlew"
-          [ -f "app/build.gradle" ] && echo "app/build.gradle found!" || echo "No app/build.gradle"
-          [ -f "twaManifest.json" ] && echo "twaManifest.json found!" || echo "No twaManifest.json"
+            # Download gradle wrapper jar
+            curl -sL "https://github.com/nicolo-ribaudo/nicolo-ribaudo/raw/main/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || {
+              # Use gradle init to create proper wrapper
+              export SDKMAN_DIR="$HOME/.sdkman"
+              curl -s "https://get.sdkman.io" | bash 2>/dev/null || true
+              source "$HOME/.sdkman/bin/sdkman-init.sh" 2>/dev/null || true
+              sdk install gradle 8.5 2>/dev/null || true
+              gradle wrapper 2>/dev/null || true
+            }
+          }
 
       - name: Build with Gradle
-        working-directory: twa-build
+        working-directory: twa
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
 
           if [ -f "gradlew" ]; then
-            echo "Building with Gradle..."
             chmod +x gradlew
+            echo "Building release APK..."
+            ./gradlew assembleRelease 2>&1
 
-            # Build signed APK
-            ./gradlew assembleRelease \
-              -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/mandarin-master.keystore \
-              -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
-              -Pandroid.injected.signing.key.alias=mandarin-master \
-              -Pandroid.injected.signing.key.password="${{ secrets.KEYSTORE_PASSWORD }}" 2>&1
-
-            # Build AAB
-            ./gradlew bundleRelease \
-              -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/mandarin-master.keystore \
-              -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
-              -Pandroid.injected.signing.key.alias=mandarin-master \
-              -Pandroid.injected.signing.key.password="${{ secrets.KEYSTORE_PASSWORD }}" 2>&1 || true
+            echo "Building release AAB..."
+            ./gradlew bundleRelease 2>&1 || true
           else
-            echo "::warning::No gradlew found. Bubblewrap init may have failed."
-            echo "Use PWABuilder web interface: https://www.pwabuilder.com"
+            echo "::error::Gradle wrapper not available"
+            exit 1
           fi
 
           echo "=== Build outputs ==="
-          find . -name "*.apk" -o -name "*.aab" 2>/dev/null || echo "No artifacts found"
+          find . -name "*.apk" -o -name "*.aab" 2>/dev/null
 
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          find twa-build -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
-          find twa-build -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
-          cp $GITHUB_WORKSPACE/mandarin-master.keystore artifacts/ 2>/dev/null || true
+          find twa -name "*.apk" -exec cp {} artifacts/ \; 2>/dev/null || true
+          find twa -name "*.aab" -exec cp {} artifacts/ \; 2>/dev/null || true
+          cp $GITHUB_WORKSPACE/mandarin-master.keystore artifacts/
+          echo "=== Final artifacts ==="
           ls -la artifacts/
 
       - name: Upload APK
@@ -156,19 +344,9 @@ jobs:
       - name: Build Summary
         run: |
           echo "## TWA Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** app.netlify.mandarin_master.twa" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ inputs.version_name }} (${{ inputs.version_code }})" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA-256:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA-256 Fingerprint:** \`${{ steps.fingerprint.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### assetlinks.json content" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          cat << EOF >> $GITHUB_STEP_SUMMARY
-          [{
-            "relation": ["delegate_permission/common.handle_all_urls"],
-            "target": {
-              "namespace": "android_app",
-              "package_name": "app.netlify.mandarin_master.twa",
-              "sha256_cert_fingerprints": ["${{ steps.fingerprint.outputs.sha256 }}"]
-            }
-          }]
-          EOF
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          ls artifacts/ 2>/dev/null | while read f; do echo "- $f"; done >> $GITHUB_STEP_SUMMARY
