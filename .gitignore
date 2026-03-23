@@ -20,6 +20,10 @@ desktop.ini
 # Build artifacts
 dist/
 build/
+build-artifacts/
+*.apk
+*.aab
+*.keystore
 
 # Logs
 *.log
