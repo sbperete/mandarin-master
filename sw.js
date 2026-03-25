@@ -1,21 +1,21 @@
 // Mandarin Master — Service Worker v13
 // Network-first for app files, cache as fallback for offline
 
-const CACHE_NAME = 'mandarin-master-v13';
+const CACHE_NAME = 'mandarin-master-v14';
 const SHELL_ASSETS = [
-    '/',
-    '/index.html',
-    '/styles.css',
-    '/app.js',
-    '/js/supabase.js',
-    '/js/auth.js',
-    '/data/hsk1.js',
-    '/data/hsk2.js',
-    '/data/hsk3.js',
-    '/data/hsk4.js',
-    '/data/hsk5.js',
-    '/data/hsk6.js',
-    '/manifest.json'
+    './',
+    './index.html',
+    './styles.css',
+    './app.js',
+    './js/supabase.js',
+    './js/auth.js',
+    './data/hsk1.js',
+    './data/hsk2.js',
+    './data/hsk3.js',
+    './data/hsk4.js',
+    './data/hsk5.js',
+    './data/hsk6.js',
+    './manifest.json'
 ];
 
 // Install: cache the app shell

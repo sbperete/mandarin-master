@@ -130,8 +130,8 @@ jobs:
                   versionName "${VERSION_NAME}"
 
                   manifestPlaceholders = [
-                      hostName: "mandarin-master.netlify.app",
-                      defaultUrl: "https://mandarin-master.netlify.app",
+                      hostName: "sbperete.github.io",
+                      defaultUrl: "https://sbperete.github.io/mandarin-master",
                       launcherName: "Mandarin Master",
                       assetStatements: '[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "android_app", "package_name": "app.netlify.mandarin_master.twa", "sha256_cert_fingerprints": ["${FINGERPRINT}"] } }]'
                   ]
@@ -220,7 +220,7 @@ jobs:
                           <action android:name="android.intent.action.VIEW" />
                           <category android:name="android.intent.category.DEFAULT" />
                           <category android:name="android.intent.category.BROWSABLE" />
-                          <data android:scheme="https" android:host="${hostName}" />
+                          <data android:scheme="https" android:host="${hostName}" android:pathPrefix="/mandarin-master" />
                       </intent-filter>
                   </activity>
               </application>

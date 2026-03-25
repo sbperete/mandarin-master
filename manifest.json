@@ -2,13 +2,13 @@
   "name": "Mandarin Master - Learn Chinese HSK",
   "short_name": "MandarinMaster",
   "description": "Master Mandarin Chinese with 4,597 interactive HSK vocabulary words, character stroke tracing, spaced repetition, and pronunciation training. HSK 1-6 complete coverage from beginner to advanced.",
-  "start_url": "/",
-  "id": "/",
+  "start_url": ".",
+  "id": ".",
   "display": "standalone",
   "background_color": "#0f1520",
   "theme_color": "#0f1520",
   "orientation": "portrait-primary",
-  "scope": "/",
+  "scope": ".",
   "categories": ["education", "language"],
   "iarc_rating_id": "",
   "prefer_related_applications": false,
@@ -61,13 +61,13 @@
     {
       "name": "Practice Vocabulary",
       "short_name": "Vocab",
-      "url": "/?section=vocab",
+      "url": "./?section=vocab",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Daily Challenge",
       "short_name": "Challenge",
-      "url": "/?section=challenge",
+      "url": "./?section=challenge",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
